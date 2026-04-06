@@ -1,30 +1,37 @@
 #pragma once
 
 #include "../renderer/renderer.h"
-#include "../ui/ui.h"
 #include "camera.h"
 #include "scene.h"
 #include "timer.h"
+#include <string>
 
-typedef struct Sendai {
-	PWSTR Title;
-	PWSTR Window;
+namespace Sendai {
+
+struct App {
+	std::wstring Title;
+	std::wstring Window;
 	HINSTANCE hInstance;
 	HWND hWnd;
 	BOOL bRunning;
 
 	R_Core RendererCore;
-	
-	S_UI UI;
-	R_Camera Camera;
-	S_StepTimer Timer;
+
+	// S_UI UI;
+	Camera Camera;
+	StepTimer Timer;
 	S_Scene Scene;
 	UINT FrameCounter;
-} Sendai;
+};
 
-INT S_Run(void);
+INT Run();
+void AfterRun();
 
-void S_DoNothing(Sendai *const Engine);
-void S_FileOpen(Sendai *const Engine);
-void S_WireframeMode(Sendai *const Engine);
-void S_GridMode(Sendai *const Engine);
+namespace Callback {
+void DoNothing(App *const Engine);
+void FileOpen(App *const Engine);
+void WireframeMode(App *const Engine);
+void GridMode(App *const Engine);
+} // namespace Callback
+
+} // namespace Sendai

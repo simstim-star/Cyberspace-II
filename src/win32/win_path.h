@@ -1,17 +1,19 @@
 #pragma once
 
+#include <filesystem>
+
 /******************************************************************************************************************
 	Retrieves the path of the executable file of the current process with a last slash ('\\') appended in the end.
 	Example: C:\\path\\to\\my\\executable.exe\\
 *******************************************************************************************************************/
-void Win32CurrPath(_Out_writes_(PathSize) WCHAR *const Path, UINT PathSize);
+std::filesystem::path Win32GetModuleDir();
 
-void Win32FullPath(PCWSTR SubPath, _Out_writes_(PathSize) PWSTR const Path, UINT PathSize);
+std::wstring Win32CurrPath();
 
-void Win32GetFileNameOnly(PCWSTR FullPath, _Out_writes_(BufferSize) PWSTR const OutBuffer, UINT BufferSize);
+std::wstring Win32FullPath(std::wstring_view subPath);
 
-void Win32AppendFileNameToPath(_In_z_ PWSTR BasePathW,
-							   _In_z_ char *FileName,
-							   _Out_writes_z_(MAX_PATH) char FullPath[MAX_PATH]);
+std::wstring Win32GetFileNameOnly(std::wstring_view fullPath);
 
-void Win32RemoveAllAfterLastSlash(_Inout_updates_z_(MAX_PATH) WCHAR FullPathBuffer[MAX_PATH]);
+std::string Win32AppendFileNameToPath(std::wstring_view basePath, std::string_view fileName);
+
+void Win32RemoveAllAfterLastSlash(std::wstring &pathBuffer);

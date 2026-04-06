@@ -1,15 +1,16 @@
 ﻿cmake_minimum_required (VERSION 3.8)
 
-project(__sendai LANGUAGES C)
-set(CMAKE_C_STANDARD 99)
+project(__cyberspaceII LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CORE_SOURCES "src/core/camera.c" "src/core/memory.c" "src/core/timer.c" "src/core/engine.c" "src/core/log.c" 
-"src/error/error.c" "src/core/grid.c")
-set(RENDERER_SOURCES "src/renderer/renderer.c" "src/renderer/shader.c" "src/renderer/light.c" "src/renderer/texture.c"
-"src/renderer/billboard.c")
-set(WIN32_SOURCES "src/win32/win_main.c" "src/win32/win_path.c" "src/win32/file_dialog.c")
-set(UI_SOURCES "src/ui/sendai_nk.c" "src/ui/ui.c" "src/ui/ui_bottom_panel.c" "src/ui/ui_top_bar.c" "src/ui/ui_tool_bar.c")
-set(GLTF_SOURCES "src/assets/gltf.c")
+set(CORE_SOURCES "src/core/camera.cpp" "src/core/memory.cpp" "src/core/timer.cpp" "src/core/engine.cpp" "src/core/log.cpp" 
+"src/error/error.cpp" "src/core/grid.cpp")
+set(RENDERER_SOURCES "src/renderer/renderer.cpp" "src/renderer/shader.cpp" "src/renderer/light.cpp" "src/renderer/texture.cpp"
+"src/renderer/billboard.cpp")
+set(WIN32_SOURCES "src/win32/win_main.cpp" "src/win32/win_path.cpp" "src/win32/file_dialog.cpp")
+set(UI_SOURCES)
+set(GLTF_SOURCES "src/assets/gltf.cpp")
 set(SOURCE_FILES ${CORE_SOURCES} ${WIN32_SOURCES} ${RENDERER_SOURCES} ${UI_SOURCES} ${GLTF_SOURCES})
 
 set(CORE_HEADERS "src/core/camera.h" "src/core/memory.h" "src/core/timer.h" "src/core/engine.h" "src/core/log.h" 
@@ -17,7 +18,7 @@ set(CORE_HEADERS "src/core/camera.h" "src/core/memory.h" "src/core/timer.h" "src
 set(RENDERER_HEADERS "src/renderer/renderer.h" "src/renderer/render_types.h" "src/renderer/shader.h" "src/renderer/light.h" 
 "src/renderer/texture.h" "src/renderer/billboard.h")
 set(WIN32_HEADERS "src/win32/win_path.h" "src/win32/str_helper.h" "src/win32/file_dialog.h")
-set(UI_HEADERS "src/ui/sendai_nk.h" "src/ui/ui.h" "src/ui/ui_bottom_panel.h" "src/ui/ui_top_bar.h" "src/ui/ui_tool_bar.c")
+set(UI_HEADERS)
 set(DX_HELPERS "src/dx_helpers/barrier_helpers.h" "src/dx_helpers/desc_helpers.h")
 set(GLTF_HEADERS "src/assets/gltf.h")
 set(HEADER_FILES ${CORE_HEADERS} ${WIN32_HEADERS} ${RENDERER_HEADERS} ${UI_HEADERS} ${DX_HELPERS} ${DX_HELPERS} ${GLTF_HEADERS})

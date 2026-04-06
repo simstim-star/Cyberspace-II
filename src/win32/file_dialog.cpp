@@ -3,6 +3,10 @@
 #include "file_dialog.h"
 #include <shobjidl.h>
 
+#include <wrl/client.h>
+
+using Microsoft::WRL::ComPtr;
+
 static const COMDLG_FILTERSPEC ModelsFilter[] = {{L"glTF Models", L"*.gltf;*.glb"}, {L"All Files", L"*.*"}};
 
 PWSTR
@@ -13,35 +17,31 @@ Win32SelectGLTFPath(void)
 		return NULL;
 	}
 
-	IFileOpenDialog *FileOpenDialog = NULL;
-	hr = CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_ALL, &IID_IFileOpenDialog, (void **)&FileOpenDialog);
+	ComPtr <IFileOpenDialog> FileOpenDialog = NULL;
+	hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_PPV_ARGS(FileOpenDialog.GetAddressOf()));
 	if (FAILED(hr)) {
 		CoUninitialize();
 		return NULL;
 	}
 
-	IFileDialog_SetFileTypes(FileOpenDialog, ARRAYSIZE(ModelsFilter), ModelsFilter);
+	FileOpenDialog->SetFileTypes(ARRAYSIZE(ModelsFilter), ModelsFilter);
 
-	hr = IFileDialog_Show(FileOpenDialog, NULL);
+	hr = FileOpenDialog->Show(NULL);
 	if (FAILED(hr)) {
-		IFileDialog_Release(FileOpenDialog);
 		CoUninitialize();
 		return NULL;
 	}
 
-	IShellItem *ChosenFile = NULL;
-	hr = IFileDialog_GetResult(FileOpenDialog, &ChosenFile);
+	ComPtr<IShellItem> ChosenFile = NULL;
+	hr = FileOpenDialog->GetResult(&ChosenFile);
 	if (FAILED(hr)) {
-		IFileDialog_Release(FileOpenDialog);
 		CoUninitialize();
 		return NULL;
 	}
 
 	PWSTR FilePath = NULL;
-	hr = IShellItem_GetDisplayName(ChosenFile, SIGDN_FILESYSPATH, &FilePath);
+	hr = ChosenFile->GetDisplayName(SIGDN_FILESYSPATH, &FilePath);
 
-	IShellItem_Release(ChosenFile);
-	IFileDialog_Release(FileOpenDialog);
 	CoUninitialize();
 
 	if (FAILED(hr)) {

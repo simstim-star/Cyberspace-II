@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DirectXMathC.h"
+#include <string>
 
 typedef struct R_Vertex {
 	XMFLOAT3 Position;
@@ -66,10 +67,10 @@ typedef struct R_Texture {
 	INT Width;
 	INT Height;
 	INT Channels;
-	PSTR Name;
+	std::wstring Name;
 	size_t Size;
 
-	void *MipPixels[D3D12_REQ_MIP_LEVELS];
+	const UINT8 *MipPixels[D3D12_REQ_MIP_LEVELS];
 	UINT MipLevels;
 } R_Texture;
 
@@ -95,7 +96,7 @@ typedef struct R_Node {
 } R_Node;
 
 typedef struct R_Model {
-	PSTR Name;
+	std::wstring Name;
 
 	R_Node *Nodes;
 	size_t NodesCount;

@@ -7,7 +7,7 @@ M_Arena
 M_ArenaInit(size_t ReserveSize)
 {
 	M_Arena Arena = {0};
-	Arena.Base = VirtualAlloc(NULL, ReserveSize, MEM_RESERVE, PAGE_READWRITE);
+	Arena.Base = (UINT8 *)VirtualAlloc(NULL, ReserveSize, MEM_RESERVE, PAGE_READWRITE);
 
 	if (!Arena.Base) {
 		ExitWithMessage("[ARENA] Failed to reserve virtual memory");
@@ -65,4 +65,4 @@ M_ArenaRelease(M_Arena *Arena)
 }
 
 D3D12_GPU_VIRTUAL_ADDRESS
-M_GpuAddress(ID3D12Resource *Resource, UINT64 Offset) { return ID3D12Resource_GetGPUVirtualAddress(Resource) + Offset; }
+M_GpuAddress(ID3D12Resource *Resource, UINT64 Offset) { return Resource->GetGPUVirtualAddress() + Offset; }

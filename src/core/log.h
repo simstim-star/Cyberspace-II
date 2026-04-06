@@ -1,14 +1,60 @@
 #pragma once
 
-#define LOG_CAPACITY 100000
+#include <algorithm>
+#include <format>
+#include <string>
+#include <string_view>
 
-typedef struct S_Log {
-	WCHAR Buffer[LOG_CAPACITY];
-	char UTF8Buffer[LOG_CAPACITY * 3];
-	int Len;
-} S_Log;
+namespace Sendai {
+class Log {
+  public:
+	static constexpr size_t Capacity = 4096;
 
-extern S_Log SENDAI_LOG;
+	inline void
+	Append(std::wstring_view Text)
+	{
+		if (Text.empty() || _Buffer.size() >= Capacity) {
+			return;
+		}
 
-void S_LogAppend(PCWSTR Text);
-void S_LogAppendf(PCWSTR Format, ...);
+		size_t SpaceLeft = Capacity - _Buffer.size();
+		size_t ToAdd = min(Text.size(), SpaceLeft);
+
+		_Buffer.append(Text.data(), ToAdd);
+	}
+
+	template <typename... Args>
+	inline void
+	Appendf(std::wformat_string<Args...> fmt, Args &&...args)
+	{
+		if (_Buffer.size() >= Capacity) {
+			return;
+		}
+		std::wstring formatted = std::format(fmt, std::forward<Args>(args)...);
+		Append(formatted);
+	}
+
+	inline size_t
+	Length() const
+	{
+		return _Buffer.size();
+	}
+
+	inline const wchar_t *
+	CStr() const
+	{
+		return _Buffer.c_str();
+	}
+
+	inline void
+	Clear()
+	{
+		_Buffer.clear();
+	}
+
+  private:
+	std::wstring _Buffer;
+};
+
+extern Log LOG;
+} // namespace Sendai

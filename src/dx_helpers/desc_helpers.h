@@ -3,7 +3,7 @@
 static inline D3D12_RESOURCE_DESC
 CD3DX12_RESOURCE_DESC_BUFFER(const UINT64 width, const D3D12_RESOURCE_FLAGS flags, const UINT64 alignment)
 {
-	return (D3D12_RESOURCE_DESC){.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
+	return {.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
 								 .Alignment = alignment,
 								 .Width = width,
 								 .Height = 1,
@@ -18,7 +18,7 @@ CD3DX12_RESOURCE_DESC_BUFFER(const UINT64 width, const D3D12_RESOURCE_FLAGS flag
 static inline D3D12_RASTERIZER_DESC
 CD3DX12_DEFAULT_RASTERIZER_DESC(void)
 {
-	return (D3D12_RASTERIZER_DESC){
+	return {
 	  .FillMode = D3D12_FILL_MODE_SOLID,
 	  .CullMode = D3D12_CULL_MODE_NONE,
 	  .FrontCounterClockwise = FALSE,
@@ -40,7 +40,7 @@ CD3DX12_DEFAULT_BLEND_DESC(void)
 	BlendDesc.AlphaToCoverageEnable = FALSE;
 	BlendDesc.IndependentBlendEnable = FALSE;
 	for (int i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
-		BlendDesc.RenderTarget[i] = (D3D12_RENDER_TARGET_BLEND_DESC){
+		BlendDesc.RenderTarget[i] = {
 		  .BlendEnable = FALSE,
 		  .LogicOpEnable = FALSE,
 		  .SrcBlend = D3D12_BLEND_ONE,
@@ -64,7 +64,7 @@ CD3DX12_DEFAULT_DEPTH_STENCIL_DESC(void)
 														 .StencilPassOp = D3D12_STENCIL_OP_KEEP,
 														 .StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS};
 
-	return (D3D12_DEPTH_STENCIL_DESC){
+	return {
 	  .DepthEnable = TRUE,
 	  .DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL,
 	  .DepthFunc = D3D12_COMPARISON_FUNC_LESS,
@@ -79,7 +79,7 @@ CD3DX12_DEFAULT_DEPTH_STENCIL_DESC(void)
 static inline D3D12_HEAP_PROPERTIES
 CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE type)
 {
-	return (D3D12_HEAP_PROPERTIES){
+	return {
 	  .Type = type,
 	  .CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
 	  .MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN,
@@ -101,7 +101,7 @@ CD3DX12_RESOURCE_DESC(D3D12_RESOURCE_DIMENSION dimension,
 					  D3D12_TEXTURE_LAYOUT layout,
 					  D3D12_RESOURCE_FLAGS flags)
 {
-	return (D3D12_RESOURCE_DESC){
+	return {
 	  .Dimension = dimension,
 	  .Alignment = alignment,
 	  .Width = width,
@@ -109,8 +109,7 @@ CD3DX12_RESOURCE_DESC(D3D12_RESOURCE_DIMENSION dimension,
 	  .DepthOrArraySize = depthOrArraySize,
 	  .MipLevels = mipLevels,
 	  .Format = format,
-	  .SampleDesc.Count = sampleCount,
-	  .SampleDesc.Quality = sampleQuality,
+	  .SampleDesc = {.Count = sampleCount, .Quality = sampleQuality},
 	  .Layout = layout,
 	  .Flags = flags,
 	};

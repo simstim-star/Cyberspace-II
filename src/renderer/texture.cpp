@@ -1,13 +1,11 @@
 #include "../core/pch.h"
 
 #include "../error/error.h"
-#include "../ui/ui.h"
 #include "../win32/str_helper.h"
 #include "renderer.h"
 #include "texture.h"
 
 #define STB_DS_IMPLEMENTATION
-#include "../../deps/stb_ds.h"
 #include "../../deps/stb_image.h"
 
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
@@ -15,34 +13,43 @@
 
 static const UINT8 WHITE_PIXEL[] = {255, 255, 255, 255};
 
-static const R_Texture WhiteTexture = {.Name = "fallback_white", .Width = 1, .Height = 1, .MipLevels = 1, .MipPixels[0] = WHITE_PIXEL};
+static const R_Texture WhiteTexture = {
+  .Width = 1,
+  .Height = 1,
+  .Name = L"fallback_white",
+  .MipPixels = {WHITE_PIXEL},
+  .MipLevels = 1,
+};
 
 void
-R_CreateUITexture(PCWSTR Path, R_Core *Renderer, UINT nkSlotIndex)
+R_CreateUITexture(std::wstring &Path, R_Core *Renderer, UINT nkSlotIndex)
 {
-	char PathUTF8[MAX_PATH * 4];
-	W_TO_UTF8(Path, PathUTF8, UTF8_SIZE(Path));
-
-	if (shgeti(Renderer->Textures, PathUTF8) != -1) {
+	if (Renderer->Textures.contains(Path)) {
 		return;
 	}
 
 	INT W, H;
-	UINT8 *Pixels = stbi_load(PathUTF8, &W, &H, NULL, 4);
-	R_Texture Source = (R_Texture){
-	  .Height = H,
+	FILE *f = _wfopen(Path.c_str(), L"rb");
+	if (!f) {
+		return;
+	}
+
+	UINT8 *Pixels = stbi_load_from_file(f, &W, &H, NULL, 4);
+	fclose(f);
+
+	R_Texture Source = {
 	  .Width = W,
-	  .Name = PathUTF8,
+	  .Height = H,
+	  .Name = Path,
+	  .MipPixels = {Pixels},
 	  .MipLevels = 1,
-	  .MipPixels[0] = Pixels,
 	};
 
 	GPUTexture NewTex = {0};
 	NewTex.GpuTexture = R_CommandCreateTextureGPU(Renderer, &Source);
-	UI_SetTextureInNkHeap(nkSlotIndex, NewTex.GpuTexture);
+	//UI_SetTextureInNkHeap(nkSlotIndex, NewTex.GpuTexture);
 
-	TextureLookup Lookup = {.key = PathUTF8, .Texture = NewTex};
-	shputs(Renderer->Textures, Lookup);
+	Renderer->Textures.insert({Path, NewTex});
 
 	stbi_image_free(Pixels);
 }
@@ -50,9 +57,8 @@ R_CreateUITexture(PCWSTR Path, R_Core *Renderer, UINT nkSlotIndex)
 GPUTexture
 R_UploadTexture(R_Core *const Renderer, const R_Texture *const Source)
 {
-	ptrdiff_t Index = shgeti(Renderer->Textures, Source->Name);
-	if (Index != -1) {
-		return Renderer->Textures[Index].Texture;
+	if (Renderer->Textures.contains(Source->Name)) {
+		return Renderer->Textures[Source->Name];
 	}
 
 	uint32_t SlotIndex = Renderer->TexturesCount++;
@@ -61,44 +67,43 @@ R_UploadTexture(R_Core *const Renderer, const R_Texture *const Source)
 	  .HeapIndex = SlotIndex,
 	};
 
-	D3D12_CPU_DESCRIPTOR_HANDLE CpuDescHandle;
-	ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(Renderer->TexturesHeap, &CpuDescHandle);
+	D3D12_CPU_DESCRIPTOR_HANDLE CpuDescHandle = Renderer->TexturesHeap->GetCPUDescriptorHandleForHeapStart();
 	CpuDescHandle.ptr += (SIZE_T)SlotIndex * Renderer->DescriptorHandleIncrementSize[D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV];
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC SrvDesc = {
 	  .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
 	  .ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
 	  .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-	  .Texture2D.MipLevels = Source->MipLevels,
+	  .Texture2D = {.MipLevels = Source->MipLevels},
 	};
 
-	ID3D12Device_CreateShaderResourceView(Renderer->Device, NewTex.GpuTexture, &SrvDesc, CpuDescHandle);
-
-	TextureLookup Lookup = {.key = Source->Name, .Texture = NewTex};
-	shputs(Renderer->Textures, Lookup);
-
+	Renderer->Device->CreateShaderResourceView(NewTex.GpuTexture.Get(), &SrvDesc, CpuDescHandle);
+	Renderer->Textures.insert({Source->Name, NewTex});
 	return NewTex;
 }
 
 void
-R_CreateCustomTexture(PCWSTR Path, R_Core *Renderer)
+R_CreateCustomTexture(std::wstring &Path, R_Core *Renderer)
 {
-	char PathUTF8[MAX_PATH * 4];
-	W_TO_UTF8(Path, PathUTF8, UTF8_SIZE(Path));
 	INT W, H;
-	UINT8 *Pixels = stbi_load(PathUTF8, &W, &H, NULL, 4);
-	R_Texture Source = (R_Texture){.Height = H, .Width = W, .Name = PathUTF8, .MipLevels = 1, .MipPixels[0] = Pixels};
+	FILE *f = _wfopen(Path.c_str(), L"rb");
+	if (!f) {
+		return;
+	}
+	UINT8 *Pixels = stbi_load_from_file(f, &W, &H, NULL, 4);
+	fclose(f);
+	R_Texture Source = {.Width = W, .Height = H, .Name = Path, .MipPixels = {Pixels}, .MipLevels = 1};
 	R_UploadTexture(Renderer, &Source);
 	stbi_image_free(Pixels);
 }
 
-ID3D12Resource *
+ComPtr<ID3D12Resource>
 R_CommandCreateTextureGPU(R_Core *const Renderer, const R_Texture *const SourceTexture)
 {
 	D3D12_RESOURCE_DESC TexDesc = {
 	  .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-	  .Width = SourceTexture->Width,
-	  .Height = SourceTexture->Height,
+	  .Width = (UINT64)SourceTexture->Width,
+	  .Height = (UINT64)SourceTexture->Height,
 	  .DepthOrArraySize = 1,
 	  .MipLevels = (UINT16)SourceTexture->MipLevels,
 	  .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
@@ -106,10 +111,10 @@ R_CommandCreateTextureGPU(R_Core *const Renderer, const R_Texture *const SourceT
 	  .Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
 	  .Flags = D3D12_RESOURCE_FLAG_NONE,
 	};
-	ID3D12Resource *Texture;
+	ComPtr<ID3D12Resource> Texture;
 	D3D12_HEAP_PROPERTIES HeapDefault = {.Type = D3D12_HEAP_TYPE_DEFAULT};
-	HRESULT hr = ID3D12Device_CreateCommittedResource(Renderer->Device, &HeapDefault, D3D12_HEAP_FLAG_NONE, &TexDesc,
-													  D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, &Texture);
+	HRESULT hr = Renderer->Device->CreateCommittedResource(&HeapDefault, D3D12_HEAP_FLAG_NONE, &TexDesc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+														   IID_PPV_ARGS(Texture.GetAddressOf()));
 	ExitIfFailed(hr);
 
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT Layouts[D3D12_REQ_MIP_LEVELS];
@@ -117,7 +122,7 @@ R_CommandCreateTextureGPU(R_Core *const Renderer, const R_Texture *const SourceT
 	UINT64 RowSizeInBytes[D3D12_REQ_MIP_LEVELS];
 	UINT64 TotalUploadSize = 0;
 
-	ID3D12Device_GetCopyableFootprints(Renderer->Device, &TexDesc, 0, SourceTexture->MipLevels, 0, Layouts, NumRows, RowSizeInBytes,
+	Renderer->Device->GetCopyableFootprints(&TexDesc, 0, SourceTexture->MipLevels, 0, Layouts, NumRows, RowSizeInBytes,
 									   &TotalUploadSize);
 
 	UINT64 Offset = R_SuballocateTextureUpload(Renderer, TotalUploadSize);
@@ -131,23 +136,24 @@ R_CommandCreateTextureGPU(R_Core *const Renderer, const R_Texture *const SourceT
 				   RowSizeInBytes[MipLevel]);
 		}
 		D3D12_TEXTURE_COPY_LOCATION DestinationLocation = {
-		  .pResource = Texture, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = MipLevel};
-		D3D12_TEXTURE_COPY_LOCATION SourceLocation = {.pResource = Renderer->TextureUploadBuffer.Buffer,
+		  .pResource = Texture.Get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = MipLevel};
+		D3D12_TEXTURE_COPY_LOCATION SourceLocation = {.pResource = Renderer->TextureUploadBuffer.Buffer.Get(),
 													  .Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
 													  .PlacedFootprint = Layouts[MipLevel]};
 		SourceLocation.PlacedFootprint.Offset += Offset;
-		ID3D12GraphicsCommandList_CopyTextureRegion(Renderer->CommandList, &DestinationLocation, 0, 0, 0, &SourceLocation, NULL);
+		Renderer->CommandList->CopyTextureRegion(&DestinationLocation, 0, 0, 0, &SourceLocation, NULL);
 	}
 
 	D3D12_RESOURCE_BARRIER Barrier = {.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
 									  .Transition = {
-										.pResource = Texture,
+										.pResource = Texture.Get(),
 										.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
 										.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST,
 										.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
 									  }};
-	ID3D12GraphicsCommandList_ResourceBarrier(Renderer->CommandList, 1, &Barrier);
+	Renderer->CommandList->ResourceBarrier(1, &Barrier);
 
+	Texture->SetName(SourceTexture->Name.c_str());
 	return Texture;
 }
 
@@ -170,7 +176,7 @@ UINT32
 R_GetTextureIndex(R_Core *const Renderer, const R_Texture *const Texture)
 {
 	R_Texture Target;
-	if (Texture && Texture->Name) {
+	if (Texture && !Texture->Name.empty()) {
 		Target = *Texture;
 	} else {
 		Target = WhiteTexture;
@@ -203,7 +209,7 @@ R_GenerateMips(R_Model *Model, M_Arena *UploadArena)
 			INT NextWidth = CurrentWidth > 1 ? CurrentWidth / 2 : 1;
 			INT NextHeight = CurrentHeight > 1 ? CurrentHeight / 2 : 1;
 
-			Texture->MipPixels[MipLevel] = M_ArenaAlloc(UploadArena, NextWidth * NextHeight * 4);
+			Texture->MipPixels[MipLevel] = (UINT8*)M_ArenaAlloc(UploadArena, NextWidth * NextHeight * 4);
 
 			stbir_resize_uint8_linear((unsigned char *)Texture->MipPixels[MipLevel - 1], CurrentWidth, CurrentHeight, 0,
 									  (unsigned char *)Texture->MipPixels[MipLevel], NextWidth, NextHeight, 0, STBIR_RGBA);

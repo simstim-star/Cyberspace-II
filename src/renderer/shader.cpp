@@ -12,7 +12,7 @@
 #include "../shaders/sendai/shader_defs.h"
 
 HRESULT
-R_CompileShader(PCWSTR FilePath, ID3DBlob **Blob, EShaderType ShaderType)
+R_CompileShader(std::wstring &FilePath, ID3DBlob **Blob, EShaderType ShaderType)
 {
 #if defined(_DEBUG)
 	const UINT CompileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
@@ -24,15 +24,13 @@ R_CompileShader(PCWSTR FilePath, ID3DBlob **Blob, EShaderType ShaderType)
 
 	switch (ShaderType) {
 	case EST_VERTEX_SHADER:
-		hr = D3DCompileFromFile(FilePath, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "VSMain", "vs_5_1", CompileFlags, 0, Blob, &ErrorBlob);
+		hr =
+			D3DCompileFromFile(FilePath.c_str(), NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "VSMain", "vs_5_1", CompileFlags, 0, Blob, &ErrorBlob);
 		break;
 	case EST_PIXEL_SHADER:
-		hr = D3DCompileFromFile(FilePath, NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "PSMain", "ps_5_1", CompileFlags, 0, Blob, &ErrorBlob);
+		hr =
+			D3DCompileFromFile(FilePath.c_str(), NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "PSMain", "ps_5_1", CompileFlags, 0, Blob, &ErrorBlob);
 		break;
-	}
-
-	if (ErrorBlob) {
-		OutputDebugStringA(ID3D10Blob_GetBufferPointer(ErrorBlob));
 	}
 
 	return hr;
@@ -41,7 +39,7 @@ R_CompileShader(PCWSTR FilePath, ID3DBlob **Blob, EShaderType ShaderType)
 void
 R_CreatePBRPipelineState(R_Core *Renderer)
 {
-	D3D12_ROOT_PARAMETER RootParameters[4] = {0};
+	D3D12_ROOT_PARAMETER RootParameters[4] = {};
 
 	// MeshData (b0)
 	RootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -103,17 +101,19 @@ R_CreatePBRPipelineState(R_Core *Renderer)
 
 	if (FAILED(hr)) {
 		if (Error) {
-			S_LogAppend((PWSTR)ID3D10Blob_GetBufferPointer(Error));
+			const char *ErrorMsg = static_cast<const char *>(Error->GetBufferPointer());
+			std::string s(ErrorMsg);
+			std::wstring ws(s.begin(), s.end());
+			Sendai::LOG.Append(static_cast<PWSTR>(Error->GetBufferPointer()));
 		}
 		ExitIfFailed(hr);
 	}
 
-	hr = ID3D12Device_CreateRootSignature(Renderer->Device, 0, ID3D10Blob_GetBufferPointer(Signature), ID3D10Blob_GetBufferSize(Signature),
-										  &IID_ID3D12RootSignature, &Renderer->RootSignPBR);
+	hr = Renderer->Device->CreateRootSignature(0, Signature->GetBufferPointer(), Signature->GetBufferSize(),
+											   IID_PPV_ARGS(Renderer->RootSignPBR.GetAddressOf()));
 	ExitIfFailed(hr);
 
-	WCHAR GLTFShadersPath[512];
-	Win32FullPath(L"/shaders/sendai/pbr.hlsl", GLTFShadersPath, _countof(GLTFShadersPath));
+	std::wstring GLTFShadersPath = Win32FullPath(L"/shaders/sendai/pbr.hlsl");
 	ID3DBlob *VS = NULL;
 	hr = R_CompileShader(GLTFShadersPath, &VS, EST_VERTEX_SHADER);
 	ExitIfFailed(hr);
@@ -129,42 +129,43 @@ R_CreatePBRPipelineState(R_Core *Renderer)
 	  {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC PSODesc = {
-	  .pRootSignature = Renderer->RootSignPBR,
-	  .InputLayout = (D3D12_INPUT_LAYOUT_DESC){.pInputElementDescs = InputElementDescs, .NumElements = _countof(InputElementDescs)},
+	  .pRootSignature = Renderer->RootSignPBR.Get(),
 	  .VS =
-		  (D3D12_SHADER_BYTECODE){
-			.pShaderBytecode = ID3D10Blob_GetBufferPointer(VS),
-			.BytecodeLength = ID3D10Blob_GetBufferSize(VS),
+		  {
+			.pShaderBytecode = VS->GetBufferPointer(),
+			.BytecodeLength = VS->GetBufferSize(),
 		  },
 	  .PS =
-		  (D3D12_SHADER_BYTECODE){
-			.pShaderBytecode = ID3D10Blob_GetBufferPointer(PS),
-			.BytecodeLength = ID3D10Blob_GetBufferSize(PS),
+		  {
+			.pShaderBytecode = PS->GetBufferPointer(),
+			.BytecodeLength = PS->GetBufferSize(),
 		  },
-	  .RasterizerState = CD3DX12_DEFAULT_RASTERIZER_DESC(),
 	  .BlendState = CD3DX12_DEFAULT_BLEND_DESC(),
-	  .DepthStencilState = CD3DX12_DEFAULT_DEPTH_STENCIL_DESC(),
-	  .DSVFormat = DXGI_FORMAT_D32_FLOAT,
 	  .SampleMask = UINT_MAX,
+	  .RasterizerState = CD3DX12_DEFAULT_RASTERIZER_DESC(),
+	  .DepthStencilState = CD3DX12_DEFAULT_DEPTH_STENCIL_DESC(),
+	  .InputLayout = {.pInputElementDescs = InputElementDescs, .NumElements = _countof(InputElementDescs)},
 	  .PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
 	  .NumRenderTargets = 1,
-	  .RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM,
-	  .SampleDesc.Count = 1,
+	  .DSVFormat = DXGI_FORMAT_D32_FLOAT,
+	  .SampleDesc{
+		.Count = 1,
+	  }
 	};
+	PSODesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
 
-	hr = ID3D12Device_CreateGraphicsPipelineState(Renderer->Device, &PSODesc, &IID_ID3D12PipelineState, &Renderer->PipelineState[ERS_GLTF]);
+	hr = Renderer->Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(Renderer->PipelineState[ERS_GLTF].GetAddressOf()));
 	ExitIfFailed(hr);
 
 	PSODesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-	hr = ID3D12Device_CreateGraphicsPipelineState(Renderer->Device, &PSODesc, &IID_ID3D12PipelineState, &Renderer->PipelineState[ERS_WIREFRAME]);
+	hr = Renderer->Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(Renderer->PipelineState[ERS_WIREFRAME].GetAddressOf()));
 	ExitIfFailed(hr);
 }
 
 void
 R_CreateBillboardPipelineState(R_Core *Renderer)
 {
-	WCHAR LightShadersPath[512];
-	Win32FullPath(L"/shaders/sendai/billboard.hlsl", LightShadersPath, _countof(LightShadersPath));
+	auto LightShadersPath = Win32FullPath(L"/shaders/sendai/billboard.hlsl");
 	ID3DBlob *VS = NULL;
 	HRESULT hr = R_CompileShader(LightShadersPath, &VS, EST_VERTEX_SHADER);
 	ExitIfFailed(hr);
@@ -211,31 +212,31 @@ R_CreateBillboardPipelineState(R_Core *Renderer)
 
 	if (FAILED(hr)) {
 		if (Error) {
-			S_LogAppend((PWSTR)ID3D10Blob_GetBufferPointer(Error));
+			Sendai::LOG.Append(static_cast<PWSTR>(Error->GetBufferPointer()));
 		}
 		ExitIfFailed(hr);
 	}
 
-	hr = ID3D12Device_CreateRootSignature(Renderer->Device, 0, ID3D10Blob_GetBufferPointer(Signature), ID3D10Blob_GetBufferSize(Signature),
-										  &IID_ID3D12RootSignature, &Renderer->RootSignBillboard);
+	hr = Renderer->Device->CreateRootSignature(0, Signature->GetBufferPointer(), Signature->GetBufferSize(), IID_PPV_ARGS(
+											   Renderer->RootSignBillboard.GetAddressOf()));
 
 	const D3D12_INPUT_ELEMENT_DESC InputElementDescs[] = {
 	  {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
 	  {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC PSODesc = {
-	  .pRootSignature = Renderer->RootSignBillboard,
-	  .InputLayout = (D3D12_INPUT_LAYOUT_DESC){.pInputElementDescs = InputElementDescs, .NumElements = _countof(InputElementDescs)},
-	  .VS = (D3D12_SHADER_BYTECODE){.pShaderBytecode = ID3D10Blob_GetBufferPointer(VS), .BytecodeLength = ID3D10Blob_GetBufferSize(VS)},
-	  .PS = (D3D12_SHADER_BYTECODE){.pShaderBytecode = ID3D10Blob_GetBufferPointer(PS), .BytecodeLength = ID3D10Blob_GetBufferSize(PS)},
-	  .RasterizerState = CD3DX12_DEFAULT_RASTERIZER_DESC(),
-	  .DSVFormat = DXGI_FORMAT_D32_FLOAT,
+	  .pRootSignature = Renderer->RootSignBillboard.Get(),
+	  .VS = {.pShaderBytecode = VS->GetBufferPointer(), .BytecodeLength = VS->GetBufferSize()},
+	  .PS = {.pShaderBytecode = PS->GetBufferPointer(), .BytecodeLength = PS->GetBufferSize()},
 	  .SampleMask = UINT_MAX,
+	  .RasterizerState = CD3DX12_DEFAULT_RASTERIZER_DESC(),
+	  .InputLayout = {.pInputElementDescs = InputElementDescs, .NumElements = _countof(InputElementDescs)},
 	  .PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
 	  .NumRenderTargets = 1,
-	  .RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM,
-	  .SampleDesc.Count = 1,
+	  .DSVFormat = DXGI_FORMAT_D32_FLOAT,
+	  .SampleDesc = {.Count = 1},
 	};
+	PSODesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM,
 	PSODesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 	D3D12_RENDER_TARGET_BLEND_DESC TransparencyBlend = {
 	  .BlendEnable = TRUE,
@@ -251,22 +252,21 @@ R_CreateBillboardPipelineState(R_Core *Renderer)
 	};
 	PSODesc.BlendState.RenderTarget[0] = TransparencyBlend;
 
-	PSODesc.DepthStencilState = (D3D12_DEPTH_STENCIL_DESC){
+	PSODesc.DepthStencilState = {
 	  .DepthEnable = TRUE,
 	  .DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO,
 	  .DepthFunc = D3D12_COMPARISON_FUNC_LESS,
 	  .StencilEnable = FALSE,
 	};
 
-	hr = ID3D12Device_CreateGraphicsPipelineState(Renderer->Device, &PSODesc, &IID_ID3D12PipelineState, &Renderer->PipelineState[ERS_BILLBOARD]);
+	hr = Renderer->Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(Renderer->PipelineState[ERS_BILLBOARD].GetAddressOf()));
 	ExitIfFailed(hr);
 }
 
 void
 R_CreateGridPipelineState(R_Core *Renderer)
 {
-	WCHAR ShadersPath[MAX_PATH];
-	Win32FullPath(L"/shaders/sendai/grid.hlsl", ShadersPath, _countof(ShadersPath));
+	auto ShadersPath = Win32FullPath(L"/shaders/sendai/grid.hlsl");
 	ID3DBlob *VS = NULL;
 	HRESULT hr = R_CompileShader(ShadersPath, &VS, EST_VERTEX_SHADER);
 	ExitIfFailed(hr);
@@ -296,30 +296,30 @@ R_CreateGridPipelineState(R_Core *Renderer)
 
 	if (FAILED(hr)) {
 		if (Error) {
-			S_LogAppend((PWSTR)ID3D10Blob_GetBufferPointer(Error));
+			Sendai::LOG.Append(static_cast<PWSTR>(Error->GetBufferPointer()));
 		}
 		ExitIfFailed(hr);
 	}
 
-	hr = ID3D12Device_CreateRootSignature(Renderer->Device, 0, ID3D10Blob_GetBufferPointer(Signature), ID3D10Blob_GetBufferSize(Signature),
-										  &IID_ID3D12RootSignature, &Renderer->RootSignGrid);
+	hr = Renderer->Device->CreateRootSignature(0, Signature->GetBufferPointer(), Signature->GetBufferSize(), IID_PPV_ARGS(
+											   Renderer->RootSignGrid.GetAddressOf()));
 
 	const D3D12_INPUT_ELEMENT_DESC InputElementDescs[] = {
 	  {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC PSODesc = {
-	  .pRootSignature = Renderer->RootSignGrid,
-	  .InputLayout = (D3D12_INPUT_LAYOUT_DESC){.pInputElementDescs = InputElementDescs, .NumElements = _countof(InputElementDescs)},
-	  .VS = (D3D12_SHADER_BYTECODE){.pShaderBytecode = ID3D10Blob_GetBufferPointer(VS), .BytecodeLength = ID3D10Blob_GetBufferSize(VS)},
-	  .PS = (D3D12_SHADER_BYTECODE){.pShaderBytecode = ID3D10Blob_GetBufferPointer(PS), .BytecodeLength = ID3D10Blob_GetBufferSize(PS)},
-	  .RasterizerState = CD3DX12_DEFAULT_RASTERIZER_DESC(),
-	  .DSVFormat = DXGI_FORMAT_D32_FLOAT,
+	  .pRootSignature = Renderer->RootSignGrid.Get(),
+	  .VS = {.pShaderBytecode = VS->GetBufferPointer(), .BytecodeLength = VS->GetBufferSize()},
+	  .PS = {.pShaderBytecode = PS->GetBufferPointer(), .BytecodeLength = PS->GetBufferSize()},
 	  .SampleMask = UINT_MAX,
+	  .RasterizerState = CD3DX12_DEFAULT_RASTERIZER_DESC(),
+	  .InputLayout = {.pInputElementDescs = InputElementDescs, .NumElements = _countof(InputElementDescs)},
 	  .PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE,
 	  .NumRenderTargets = 1,
-	  .RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM,
-	  .SampleDesc.Count = 1,
+	  .DSVFormat = DXGI_FORMAT_D32_FLOAT,
+	  .SampleDesc = {.Count = 1},
 	};
+	PSODesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM,
 	PSODesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 	D3D12_RENDER_TARGET_BLEND_DESC TransparencyBlend = {
 	  .BlendEnable = TRUE,
@@ -335,14 +335,14 @@ R_CreateGridPipelineState(R_Core *Renderer)
 	};
 	PSODesc.BlendState.RenderTarget[0] = TransparencyBlend;
 
-	PSODesc.DepthStencilState = (D3D12_DEPTH_STENCIL_DESC){
+	PSODesc.DepthStencilState = {
 	  .DepthEnable = TRUE,
 	  .DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO,
 	  .DepthFunc = D3D12_COMPARISON_FUNC_LESS,
 	  .StencilEnable = FALSE,
 	};
 
-	hr = ID3D12Device_CreateGraphicsPipelineState(Renderer->Device, &PSODesc, &IID_ID3D12PipelineState, &Renderer->PipelineState[ERS_GRID]);
+	hr = Renderer->Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(Renderer->PipelineState[ERS_GRID].GetAddressOf()));
 	ExitIfFailed(hr);
 }
 
