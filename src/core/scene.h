@@ -1,19 +1,20 @@
 #pragma once
 
-#include "memory.h"
 #include "../renderer/render_types.h"
+#include "memory.h"
+#include <vector>
 
-typedef struct R_Model R_Model;
-typedef struct ID3D12RootSignature ID3D12RootSignature;
+struct R_Model;
+struct ID3D12RootSignature;
 
-typedef struct S_Scene {
-	R_Model *Models;
-	size_t ModelsCount;
-	size_t ModelsCapacity;
+namespace Sendai {
+struct Scene {
+	std::vector<Model> Models;
 
-	R_SceneData Data;
+	SceneData Data;
 	BYTE ActiveLightMask;
 
 	M_Arena SceneArena;
 	M_Arena UploadArena;
-} S_Scene;
+};
+} // namespace Sendai

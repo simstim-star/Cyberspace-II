@@ -10,7 +10,7 @@
 static XMFLOAT3 GRID_VERTICES[GRID_VERTICES_COUNT] = {0};
 
 void
-R_CreateGrid(R_Core *const Renderer, const float HalfSide)
+R_CreateGrid(Sendai::Renderer *const Renderer, const float HalfSide)
 {
 	const INT LinesPerDirection = (GRID_VERTICES_COUNT / 4);
 	const FLOAT Step = (HalfSide * 2.0f) / (float)(LinesPerDirection - 1);
@@ -24,20 +24,20 @@ R_CreateGrid(R_Core *const Renderer, const float HalfSide)
 		GRID_VERTICES[i + 3] = {HalfSide, 0.0f, Position};
 	}
 
-	memcpy(Renderer->SceneDataUploadBufferCpuAddress + Renderer->SceneDataOffset, &GRID_VERTICES, sizeof(GRID_VERTICES));
+	std::memcpy(Renderer->SceneDataUploadBufferCpuAddress + Renderer->SceneDataOffset, &GRID_VERTICES, sizeof(GRID_VERTICES));
 	Renderer->GridBufferLocation = M_GpuAddress(Renderer->SceneDataUploadBuffer.Get(), Renderer->SceneDataOffset);
 	Renderer->SceneDataOffset += CB_ALIGN(GRID_VERTICES);
 }
 
 void
-R_RenderGrid(R_Core *const Renderer, R_MeshConstants *const MeshConstants)
+R_RenderGrid(Sendai::Renderer *const Renderer, Sendai::MeshConstants *const MeshConstants)
 {
 	Renderer->CommandList->SetGraphicsRootSignature(Renderer->RootSignGrid.Get());
-	Renderer->CommandList->SetPipelineState(Renderer->PipelineState[ERS_GRID].Get());
+	Renderer->CommandList->SetPipelineState(Renderer->PipelineState[Sendai::ERenderState::ERS_GRID].Get());
 	Renderer->CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
 
 	MeshConstants->MVP.Model = XMMatrixIdentity();
-	memcpy(Renderer->MeshDataUploadBufferCpuAddress + Renderer->MeshDataOffset, MeshConstants, sizeof(R_MeshConstants));
+	std::memcpy(Renderer->MeshDataUploadBufferCpuAddress + Renderer->MeshDataOffset, MeshConstants, sizeof(Sendai::MeshConstants));
 
 	Renderer->CommandList->SetGraphicsRootConstantBufferView(0, M_GpuAddress(Renderer->MeshDataUploadBuffer.Get(), Renderer->MeshDataOffset));
 
@@ -50,5 +50,5 @@ R_RenderGrid(R_Core *const Renderer, R_MeshConstants *const MeshConstants)
 	Renderer->CommandList->IASetVertexBuffers(0, 1, &VBV);
 	Renderer->CommandList->DrawInstanced(GRID_VERTICES_COUNT, 1, 0, 0);
 
-	Renderer->MeshDataOffset += CB_ALIGN(R_MeshConstants);
+	Renderer->MeshDataOffset += CB_ALIGN(MeshConstants);
 }

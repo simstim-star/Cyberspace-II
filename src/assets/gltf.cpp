@@ -28,7 +28,7 @@
 
 typedef struct MeshLookup {
 	cgltf_mesh *key;
-	R_Mesh *value;
+	Sendai::Mesh *value;
 } MeshLookup;
 
 /****************************************************
@@ -37,11 +37,11 @@ typedef struct MeshLookup {
 
 cgltf_data *GetData(std::wstring &Path, M_Arena *UploadArena);
 
-void LoadNodes(R_Core *Renderer, R_Model *Model, cgltf_data *Data, M_Arena *SceneArena, M_Arena *UploadArena);
+void LoadNodes(Sendai::Renderer *Renderer, Sendai::Model *Model, cgltf_data *Data, M_Arena *SceneArena, M_Arena *UploadArena);
 
-void PreloadImages(R_Model *Model, cgltf_data *Data, std::wstring &Path, M_Arena *UploadArena);
+void PreloadImages(Sendai::Model *Model, cgltf_data *Data, std::wstring &Path, M_Arena *UploadArena);
 
-BOOL ExtractImageData(_In_z_ std::wstring &BasePath, _In_ cgltf_image *Img, _In_ M_Arena *UploadArena, _Out_ R_Texture *Texture);
+BOOL ExtractImageData(_In_z_ std::wstring &BasePath, _In_ cgltf_image *Img, _In_ M_Arena *UploadArena, _Out_ Sendai::Texture *Texture);
 
 LONG LoadGLTFFile(_In_z_ std::wstring &Path, _In_ M_Arena *Arena, _Outptr_ void **Data);
 
@@ -52,25 +52,26 @@ std::wstring CreateTextureName(cgltf_image *BaseImage, const std::wstring &Path,
 BOOL IsDataEmbedded(const cgltf_image *const BaseImage);
 
 void RetriveAttributeData(cgltf_primitive *PrimitiveData,
-						 cgltf_accessor *UVAccessorsData[2],
-						 cgltf_accessor *AccessorsData[cgltf_attribute_type_max_enum]);
+						  cgltf_accessor *UVAccessorsData[2],
+						  cgltf_accessor *AccessorsData[cgltf_attribute_type_max_enum]);
 
-void LoadPBRData(R_Core *Renderer, R_Texture *const Images, cgltf_image *ImagesData, cgltf_material *Material, R_PBRConstantBuffer *CB);
+void LoadPBRData(
+	Sendai::Renderer *Renderer, Sendai::Texture *const Images, cgltf_image *ImagesData, cgltf_material *Material, Sendai::PBRConstantBuffer *CB);
 
-void LoadVerticesAndIndicesIntoBuffers(R_Core *Renderer,
-											  R_Primitive *Primitive,
-											  cgltf_accessor *PositionAccessor,
-											  cgltf_accessor *NormalAccessor,
-											  cgltf_accessor *TangentAccessor,
-											  cgltf_accessor *IndicesAccessor,
-											  cgltf_accessor *UVAccessorsData[2],
-											  M_Arena *Arena);
+void LoadVerticesAndIndicesIntoBuffers(Sendai::Renderer *Renderer,
+									   Sendai::Primitive *Primitive,
+									   cgltf_accessor *PositionAccessor,
+									   cgltf_accessor *NormalAccessor,
+									   cgltf_accessor *TangentAccessor,
+									   cgltf_accessor *IndicesAccessor,
+									   cgltf_accessor *UVAccessorsData[2],
+									   M_Arena *Arena);
 
 XMFLOAT4 *ComputeTangents(cgltf_accessor *PositionAccessor,
-								 cgltf_accessor *NormalAccessor,
-								 cgltf_accessor *UVAccessor,
-								 cgltf_accessor *IndicesAccessor,
-								 M_Arena *Arena);
+						  cgltf_accessor *NormalAccessor,
+						  cgltf_accessor *UVAccessor,
+						  cgltf_accessor *IndicesAccessor,
+						  M_Arena *Arena);
 
 /* The below functions are to inject into gltf loader to use my arena */
 
@@ -91,24 +92,24 @@ cgltf_arena_free(void *user, void *ptr)
 *****************************************************/
 
 BOOL
-SendaiGLTF_LoadModel(R_Core *Renderer, std::wstring &Path, S_Scene *Scene)
+SendaiGLTF_LoadModel(Sendai::Renderer *Renderer, std::wstring &Path, Sendai::Scene &Scene)
 {
-	cgltf_data *Data = GetData(Path, &Scene->UploadArena);
+	cgltf_data *Data = GetData(Path, &Scene.UploadArena);
 	if (Data == NULL) {
 		return FALSE;
 	}
 
-	R_Model *Model = &Scene->Models[Scene->ModelsCount];
+	Sendai::Model *Model = &Scene.Models.back();
 	Model->Scale = {.x = 1, .y = 1, .z = 1};
 	Model->Visible = TRUE;
 	Model->Name = Win32GetFileNameOnly(Path);
 
 	if (Data->images_count > 0) {
-		PreloadImages(Model, Data, Path, &Scene->UploadArena);
+		PreloadImages(Model, Data, Path, &Scene.UploadArena);
 	}
 
-	R_GenerateMips(Model, &Scene->UploadArena);
-	LoadNodes(Renderer, Model, Data, &Scene->SceneArena, &Scene->UploadArena);
+	R_GenerateMips(Model, &Scene.UploadArena);
+	LoadNodes(Renderer, Model, Data, &Scene.SceneArena, &Scene.UploadArena);
 	cgltf_free(Data);
 
 	D3D12_RESOURCE_BARRIER VBBarrier = {.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
@@ -127,7 +128,6 @@ SendaiGLTF_LoadModel(R_Core *Renderer, std::wstring &Path, S_Scene *Scene)
 										}};
 	Renderer->CommandList->ResourceBarrier(1, &IBBarrier);
 
-	Scene->ModelsCount++;
 	Sendai::LOG.Appendf(L"Successfully loaded %s\n", Path);
 	return TRUE;
 }
@@ -137,17 +137,16 @@ SendaiGLTF_LoadModel(R_Core *Renderer, std::wstring &Path, S_Scene *Scene)
 *****************************************************/
 
 void
-LoadNodes(R_Core *Renderer, R_Model *Model, cgltf_data *Data, M_Arena *SceneArena, M_Arena *UploadArena)
+LoadNodes(Sendai::Renderer *Renderer, Sendai::Model *Model, cgltf_data *Data, M_Arena *SceneArena, M_Arena *UploadArena)
 {
-	R_Mesh *Meshes = (R_Mesh *)M_ArenaAlloc(SceneArena, Data->meshes_count * sizeof(R_Mesh));
-	std::unordered_map<cgltf_mesh*, R_Mesh*> MeshMap;
+	Sendai::Mesh *Meshes = (Sendai::Mesh *)M_ArenaAlloc(SceneArena, Data->meshes_count * sizeof(Sendai::Mesh));
+	std::unordered_map<cgltf_mesh *, Sendai::Mesh *> MeshMap;
 
 	for (INT MeshIndex = 0; MeshIndex < Data->meshes_count; MeshIndex++) {
 		cgltf_mesh *MeshData = &Data->meshes[MeshIndex];
-		R_Mesh *CurrentMesh = &Meshes[MeshIndex];
+		Sendai::Mesh *CurrentMesh = &Meshes[MeshIndex];
 
-		CurrentMesh->PrimitivesCount = MeshData->primitives_count;
-		CurrentMesh->Primitives = (R_Primitive *)M_ArenaAlloc(SceneArena, CurrentMesh->PrimitivesCount * sizeof(R_Primitive));
+		CurrentMesh->Primitives.reserve(MeshData->primitives_count);
 
 		for (cgltf_size PrimitiveId = 0; PrimitiveId < MeshData->primitives_count; PrimitiveId++) {
 			cgltf_primitive *PrimitiveData = &MeshData->primitives[PrimitiveId];
@@ -156,43 +155,43 @@ LoadNodes(R_Core *Renderer, R_Model *Model, cgltf_data *Data, M_Arena *SceneAren
 			cgltf_accessor *UVAccessorsData[2] = {0};
 			RetriveAttributeData(PrimitiveData, UVAccessorsData, Accessors);
 
-			R_Primitive *Primitive = &CurrentMesh->Primitives[PrimitiveId];
+			Sendai::Primitive *Primitive = &CurrentMesh->Primitives[PrimitiveId];
 
 			LoadVerticesAndIndicesIntoBuffers(Renderer, Primitive, Accessors[cgltf_attribute_type_position],
 											  Accessors[cgltf_attribute_type_normal], Accessors[cgltf_attribute_type_tangent],
 											  PrimitiveData->indices, UVAccessorsData, UploadArena);
-			LoadPBRData(Renderer, Model->Images, Data->images, PrimitiveData->material, &Primitive->ConstantBuffer);
+			// LoadPBRData(Renderer, Model->Images, Data->images, PrimitiveData->material, &Primitive->ConstantBuffer);
 		}
 
 		MeshMap.insert({MeshData, CurrentMesh});
 	}
 
-	Model->Nodes = (R_Node *)M_ArenaAlloc(SceneArena, Data->nodes_count * sizeof(R_Node));
-	Model->NodesCount = 0;
+	// Model->Nodes = (Sendai::Node *)M_ArenaAlloc(SceneArena, Data->nodes_count * sizeof(R_Node));
+	// Model->NodesCount = 0;
 
-	for (; Model->NodesCount < Data->nodes_count; Model->NodesCount++) {
-		UINT NodeIndex = Model->NodesCount;
-		cgltf_node *NodeData = &Data->nodes[NodeIndex];
-		R_Node *CurrentNode = &Model->Nodes[NodeIndex];
-
-		// Note: Mesh->Transform is col-major, but XMLoadFloat4x4 expects row-major.
-		// This way, the matrix is automatically transposed already, because XMLoadFloat4x4
-		// will pick as row what is col and vice-versa. Therefore, ModelMatrix is Mesh->Transform
-		// converted to row-major.
-		cgltf_float TransformColMajor[4][4];
-		cgltf_node_transform_world(NodeData, (cgltf_float *)TransformColMajor);
-		/* Corrections for left-hand system */
-		TransformColMajor[3][2] *= -1.0f;
-		TransformColMajor[0][2] *= -1.0f;
-		TransformColMajor[1][2] *= -1.0f;
-		TransformColMajor[2][0] *= -1.0f;
-		TransformColMajor[2][1] *= -1.0f;
-		memcpy(&CurrentNode->ModelMatrix, TransformColMajor, sizeof(XMFLOAT4X4));
-
-		if (NodeData->mesh) {
-			CurrentNode->Mesh = MeshMap.at(NodeData->mesh);
-		}
-	}
+	// for (; Model->NodesCount < Data->nodes_count; Model->NodesCount++) {
+	//	UINT NodeIndex = Model->NodesCount;
+	//	cgltf_node *NodeData = &Data->nodes[NodeIndex];
+	//	Sendai::Node *CurrentNode = &Model->Nodes[NodeIndex];
+	//
+	//	// Note: Mesh->Transform is col-major, but XMLoadFloat4x4 expects row-major.
+	//	// This way, the matrix is automatically transposed already, because XMLoadFloat4x4
+	//	// will pick as row what is col and vice-versa. Therefore, ModelMatrix is Mesh->Transform
+	//	// converted to row-major.
+	//	cgltf_float TransformColMajor[4][4];
+	//	cgltf_node_transform_world(NodeData, (cgltf_float *)TransformColMajor);
+	//	/* Corrections for left-hand system */
+	//	TransformColMajor[3][2] *= -1.0f;
+	//	TransformColMajor[0][2] *= -1.0f;
+	//	TransformColMajor[1][2] *= -1.0f;
+	//	TransformColMajor[2][0] *= -1.0f;
+	//	TransformColMajor[2][1] *= -1.0f;
+	//	memcpy(&CurrentNode->ModelMatrix, TransformColMajor, sizeof(XMFLOAT4X4));
+	//
+	//	if (NodeData->mesh) {
+	//		CurrentNode->Mesh = MeshMap.at(NodeData->mesh);
+	//	}
+	// }
 }
 
 cgltf_data *
@@ -230,7 +229,6 @@ GetData(std::wstring &Path, M_Arena *UploadArena)
 	return Data;
 }
 
-
 void
 RetriveAttributeData(cgltf_primitive *PrimitiveData,
 					 cgltf_accessor *UVAccessorsData[2],
@@ -251,8 +249,8 @@ RetriveAttributeData(cgltf_primitive *PrimitiveData,
 }
 
 void
-LoadVerticesAndIndicesIntoBuffers(R_Core *Renderer,
-								  R_Primitive *Primitive,
+LoadVerticesAndIndicesIntoBuffers(Sendai::Renderer *Renderer,
+								  Sendai::Primitive *Primitive,
 								  cgltf_accessor *PositionAccessor,
 								  cgltf_accessor *NormalAccessor,
 								  cgltf_accessor *TangentAccessor,
@@ -266,8 +264,8 @@ LoadVerticesAndIndicesIntoBuffers(R_Core *Renderer,
 	}
 
 	UINT VertexCount = PositionAccessor->count;
-	UINT VertexBufferSize = sizeof(R_Vertex) * VertexCount;
-	R_Vertex *Vertices = (R_Vertex *)M_ArenaAlloc(Arena, VertexBufferSize);
+	UINT VertexBufferSize = sizeof(Sendai::Vertex) * VertexCount;
+	Sendai::Vertex *Vertices = (Sendai::Vertex *)M_ArenaAlloc(Arena, VertexBufferSize);
 	XMFLOAT4 *Tangents = NULL;
 	if (PositionAccessor && NormalAccessor && UVAccessorsData[0] && IndicesAccessor) {
 		Tangents = ComputeTangents(PositionAccessor, NormalAccessor, UVAccessorsData[0], IndicesAccessor, Arena);
@@ -353,10 +351,10 @@ LoadVerticesAndIndicesIntoBuffers(R_Core *Renderer,
 	D3D12_VERTEX_BUFFER_VIEW VertexBufferView = {
 	  .BufferLocation = M_GpuAddress(Renderer->VertexBufferDefault.Get(), Renderer->CurrentVertexBufferOffset),
 	  .SizeInBytes = VertexBufferSize,
-	  .StrideInBytes = sizeof(R_Vertex),
+	  .StrideInBytes = sizeof(Sendai::Vertex),
 	};
-	Renderer->CommandList->CopyBufferRegion(Renderer->VertexBufferDefault.Get(), Renderer->CurrentVertexBufferOffset, Renderer->UploadBuffer.Get(),
-											Renderer->CurrentUploadBufferOffset, VertexBufferSize);
+	Renderer->CommandList->CopyBufferRegion(Renderer->VertexBufferDefault.Get(), Renderer->CurrentVertexBufferOffset,
+											Renderer->UploadBuffer.Get(), Renderer->CurrentUploadBufferOffset, VertexBufferSize);
 	Renderer->CurrentVertexBufferOffset += VertexBufferSize;
 	Renderer->CurrentUploadBufferOffset += VertexBufferSize;
 
@@ -380,25 +378,25 @@ LoadVerticesAndIndicesIntoBuffers(R_Core *Renderer,
 }
 
 void
-PreloadImages(R_Model *Model, cgltf_data *Data, std::wstring &Path, M_Arena *UploadArena)
+PreloadImages(Sendai::Model *Model, cgltf_data *Data, std::wstring &Path, M_Arena *UploadArena)
 {
-	Model->Images = (R_Texture *)M_ArenaAlloc(UploadArena, Data->images_count * sizeof(R_Texture));
-	Model->ImagesCount = Data->images_count;
-
-	for (int i = 0; i < Data->images_count; ++i) {
-		cgltf_image *BaseImage = &Data->images[i];
-		size_t Size = 0;
-		int Channels = 0;
-		Win32RemoveAllAfterLastSlash(Path);
-
-		if (ExtractImageData(Path, BaseImage, UploadArena, &Model->Images[i])) {
-			Model->Images[i].Name = CreateTextureName(BaseImage, Path, i);
-		}
-	}
+	// Model->Images = (Sendai::Texture *)M_ArenaAlloc(UploadArena, Data->images_count * sizeof(Sendai::Texture));
+	// Model->ImagesCount = Data->images_count;
+	//
+	// for (int i = 0; i < Data->images_count; ++i) {
+	//	cgltf_image *BaseImage = &Data->images[i];
+	//	size_t Size = 0;
+	//	int Channels = 0;
+	//	Win32RemoveAllAfterLastSlash(Path);
+	//
+	//	if (ExtractImageData(Path, BaseImage, UploadArena, &Model->Images[i])) {
+	//		Model->Images[i].Name = CreateTextureName(BaseImage, Path, i);
+	//	}
+	// }
 }
 
 BOOL
-ExtractImageData(_In_z_ std::wstring &BasePath, _In_ cgltf_image *Img, _In_ M_Arena *UploadArena, _Out_ R_Texture *Texture)
+ExtractImageData(_In_z_ std::wstring &BasePath, _In_ cgltf_image *Img, _In_ M_Arena *UploadArena, _Out_ Sendai::Texture *Texture)
 {
 	if (Texture == NULL) {
 		return FALSE;
@@ -456,10 +454,7 @@ ExtractImageData(_In_z_ std::wstring &BasePath, _In_ cgltf_image *Img, _In_ M_Ar
 }
 
 cgltf_result
-LoadGLTFBuffer(_In_z_ std::wstring &FullPath,
-			   _In_ M_Arena *Arena,
-			   _Out_ size_t *Size,
-			   _Outptr_result_bytebuffer_(*Size) void **Data)
+LoadGLTFBuffer(_In_z_ std::wstring &FullPath, _In_ M_Arena *Arena, _Out_ size_t *Size, _Outptr_result_bytebuffer_(*Size) void **Data)
 {
 	std::wstring FullPathBuffer;
 	Win32RemoveAllAfterLastSlash(FullPathBuffer);
@@ -495,7 +490,7 @@ LoadGLTFBuffers(_In_ const cgltf_options *Options, _In_ M_Arena *Arena, _Inout_ 
 		if (Data->bin_size < Data->buffers[0].size) {
 			return cgltf_result_data_too_short;
 		}
-		Data->buffers[0].vertex_data = (void*)Data->bin;
+		Data->buffers[0].vertex_data = (void *)Data->bin;
 		Data->buffers[0].data_free_method = cgltf_data_free_method_none;
 	}
 
@@ -576,7 +571,6 @@ IsDataEmbedded(const cgltf_image *const BaseImage)
 	return BaseImage->uri && strncmp(BaseImage->uri, "data:", 5) == 0;
 }
 
-
 std::wstring
 UTF8ToWSTR(const char *UTF8)
 {
@@ -602,7 +596,8 @@ CreateTextureName(cgltf_image *BaseImage, const std::wstring &Path, int i)
 }
 
 void
-LoadPBRData(R_Core *Renderer, R_Texture *const Images, cgltf_image *ImagesData, cgltf_material *Material, R_PBRConstantBuffer *CB)
+LoadPBRData(
+	Sendai::Renderer *Renderer, Sendai::Texture *const Images, cgltf_image *ImagesData, cgltf_material *Material, Sendai::PBRConstantBuffer *CB)
 {
 	CB->AlbedoTextureIndex = R_GetTextureIndex(Renderer, NULL);
 	CB->NormalTextureIndex = R_GetTextureIndex(Renderer, NULL);

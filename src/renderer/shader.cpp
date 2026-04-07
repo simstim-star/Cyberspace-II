@@ -5,11 +5,11 @@
 #include "../core/log.h"
 #include "../dx_helpers/desc_helpers.h"
 #include "../error/error.h"
+#include "../shaders/sendai/shader_defs.h"
 #include "../win32/win_path.h"
 #include "render_types.h"
 #include "renderer.h"
 #include "shader.h"
-#include "../shaders/sendai/shader_defs.h"
 
 HRESULT
 R_CompileShader(std::wstring &FilePath, ID3DBlob **Blob, EShaderType ShaderType)
@@ -37,7 +37,7 @@ R_CompileShader(std::wstring &FilePath, ID3DBlob **Blob, EShaderType ShaderType)
 }
 
 void
-R_CreatePBRPipelineState(R_Core *Renderer)
+R_CreatePBRPipelineState(Sendai::Renderer *Renderer)
 {
 	D3D12_ROOT_PARAMETER RootParameters[4] = {};
 
@@ -49,7 +49,7 @@ R_CreatePBRPipelineState(R_Core *Renderer)
 	// PBRData (b1)
 	RootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
 	RootParameters[1].Constants.ShaderRegister = 1;
-	RootParameters[1].Constants.Num32BitValues = NUM_32BITS_PBR_VALUES;
+	RootParameters[1].Constants.Num32BitValues = Sendai::NUM_32BITS_PBR_VALUES;
 	RootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
 	// SceneData (b2)
@@ -81,7 +81,7 @@ R_CreatePBRPipelineState(R_Core *Renderer)
 	  .MaxAnisotropy = 16,
 	  .ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER,
 	  .BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK,
-	  .MinLOD = 0.0f,			   
+	  .MinLOD = 0.0f,
 	  .MaxLOD = D3D12_FLOAT32_MAX,
 	  .ShaderRegister = 0,
 	  .ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL,
@@ -150,20 +150,21 @@ R_CreatePBRPipelineState(R_Core *Renderer)
 	  .DSVFormat = DXGI_FORMAT_D32_FLOAT,
 	  .SampleDesc{
 		.Count = 1,
-	  }
-	};
+	  }};
 	PSODesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
 
-	hr = Renderer->Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(Renderer->PipelineState[ERS_GLTF].GetAddressOf()));
+	hr = Renderer->Device->CreateGraphicsPipelineState(&PSODesc,
+													   IID_PPV_ARGS(Renderer->PipelineState[Sendai::ERenderState::ERS_GLTF].GetAddressOf()));
 	ExitIfFailed(hr);
 
 	PSODesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-	hr = Renderer->Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(Renderer->PipelineState[ERS_WIREFRAME].GetAddressOf()));
+	hr = Renderer->Device->CreateGraphicsPipelineState(
+		&PSODesc, IID_PPV_ARGS(Renderer->PipelineState[Sendai::ERenderState::ERS_WIREFRAME].GetAddressOf()));
 	ExitIfFailed(hr);
 }
 
 void
-R_CreateBillboardPipelineState(R_Core *Renderer)
+R_CreateBillboardPipelineState(Sendai::Renderer *Renderer)
 {
 	auto LightShadersPath = Win32FullPath(L"/shaders/sendai/billboard.hlsl");
 	ID3DBlob *VS = NULL;
@@ -217,8 +218,8 @@ R_CreateBillboardPipelineState(R_Core *Renderer)
 		ExitIfFailed(hr);
 	}
 
-	hr = Renderer->Device->CreateRootSignature(0, Signature->GetBufferPointer(), Signature->GetBufferSize(), IID_PPV_ARGS(
-											   Renderer->RootSignBillboard.GetAddressOf()));
+	hr = Renderer->Device->CreateRootSignature(0, Signature->GetBufferPointer(), Signature->GetBufferSize(),
+											   IID_PPV_ARGS(Renderer->RootSignBillboard.GetAddressOf()));
 
 	const D3D12_INPUT_ELEMENT_DESC InputElementDescs[] = {
 	  {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
@@ -236,8 +237,7 @@ R_CreateBillboardPipelineState(R_Core *Renderer)
 	  .DSVFormat = DXGI_FORMAT_D32_FLOAT,
 	  .SampleDesc = {.Count = 1},
 	};
-	PSODesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM,
-	PSODesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	PSODesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM, PSODesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 	D3D12_RENDER_TARGET_BLEND_DESC TransparencyBlend = {
 	  .BlendEnable = TRUE,
 	  .LogicOpEnable = FALSE,
@@ -259,12 +259,13 @@ R_CreateBillboardPipelineState(R_Core *Renderer)
 	  .StencilEnable = FALSE,
 	};
 
-	hr = Renderer->Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(Renderer->PipelineState[ERS_BILLBOARD].GetAddressOf()));
+	hr = Renderer->Device->CreateGraphicsPipelineState(
+		&PSODesc, IID_PPV_ARGS(Renderer->PipelineState[Sendai::ERenderState::ERS_BILLBOARD].GetAddressOf()));
 	ExitIfFailed(hr);
 }
 
 void
-R_CreateGridPipelineState(R_Core *Renderer)
+R_CreateGridPipelineState(Sendai::Renderer *Renderer)
 {
 	auto ShadersPath = Win32FullPath(L"/shaders/sendai/grid.hlsl");
 	ID3DBlob *VS = NULL;
@@ -301,8 +302,8 @@ R_CreateGridPipelineState(R_Core *Renderer)
 		ExitIfFailed(hr);
 	}
 
-	hr = Renderer->Device->CreateRootSignature(0, Signature->GetBufferPointer(), Signature->GetBufferSize(), IID_PPV_ARGS(
-											   Renderer->RootSignGrid.GetAddressOf()));
+	hr = Renderer->Device->CreateRootSignature(0, Signature->GetBufferPointer(), Signature->GetBufferSize(),
+											   IID_PPV_ARGS(Renderer->RootSignGrid.GetAddressOf()));
 
 	const D3D12_INPUT_ELEMENT_DESC InputElementDescs[] = {
 	  {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
@@ -319,8 +320,7 @@ R_CreateGridPipelineState(R_Core *Renderer)
 	  .DSVFormat = DXGI_FORMAT_D32_FLOAT,
 	  .SampleDesc = {.Count = 1},
 	};
-	PSODesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM,
-	PSODesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	PSODesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM, PSODesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 	D3D12_RENDER_TARGET_BLEND_DESC TransparencyBlend = {
 	  .BlendEnable = TRUE,
 	  .LogicOpEnable = FALSE,
@@ -342,7 +342,8 @@ R_CreateGridPipelineState(R_Core *Renderer)
 	  .StencilEnable = FALSE,
 	};
 
-	hr = Renderer->Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(Renderer->PipelineState[ERS_GRID].GetAddressOf()));
+	hr = Renderer->Device->CreateGraphicsPipelineState(&PSODesc,
+													   IID_PPV_ARGS(Renderer->PipelineState[Sendai::ERenderState::ERS_GRID].GetAddressOf()));
 	ExitIfFailed(hr);
 }
 

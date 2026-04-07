@@ -3,22 +3,20 @@
 #include <wrl/client.h>
 using Microsoft::WRL::ComPtr;
 
-struct R_Core;
-struct S_Scene;
-struct R_Texture;
-struct R_Primitive;
+struct Sendai::Renderer;
+struct Sendai::Texture;
 
 struct GPUTexture {
 	ComPtr<ID3D12Resource> GpuTexture;
 	UINT HeapIndex;
 };
 
-void R_CreateCustomTexture(std::wstring &Path, R_Core *Renderer);
-void R_CreateUITexture(std::wstring &Path, R_Core *Renderer, UINT nkSlotIndex);
-GPUTexture R_UploadTexture(R_Core *const Renderer, const R_Texture *const Source);
+void R_CreateCustomTexture(std::wstring &Path, Sendai::Renderer *Renderer);
+void R_CreateUITexture(std::wstring &Path, Sendai::Renderer *Renderer, UINT nkSlotIndex);
+GPUTexture R_UploadTexture(Sendai::Renderer *const Renderer, const Sendai::Texture *const Source);
 UINT R_CalculateMipLevels(INT Width, INT Height);
-ComPtr<ID3D12Resource> R_CommandCreateTextureGPU(R_Core *const Renderer, const R_Texture *const SourceTexture);
-UINT64 R_SuballocateTextureUpload(R_Core *Renderer, UINT64 Size);
+ComPtr<ID3D12Resource> R_CommandCreateTextureGPU(Sendai::Renderer *const Renderer, const Sendai::Texture *const SourceTexture);
+UINT64 R_SuballocateTextureUpload(Sendai::Renderer *Renderer, UINT64 Size);
 UINT32
-R_GetTextureIndex(R_Core *const Renderer, const R_Texture *const Texture);
-void R_GenerateMips(R_Model *Model, M_Arena *UploadArena);
+R_GetTextureIndex(Sendai::Renderer *const Renderer, const Sendai::Texture *const Texture);
+void R_GenerateMips(Sendai::Model *Model, M_Arena *UploadArena);

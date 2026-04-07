@@ -9,14 +9,14 @@
 #include "../core/scene.h"
 #include "../shaders/sendai/shader_defs.h"
 
-static void RenderLightBillboard(const R_MeshConstants *const MeshConstants, R_Core *const Renderer, XMFLOAT3 Tint);
+static VOID RenderLightBillboard(const Sendai::MeshConstants *const MeshConstants, Sendai::Renderer *const Renderer, XMFLOAT3 Tint);
 
-void
-R_LightsInit(S_Scene *const Scene, const Sendai::Camera *const Camera)
+VOID
+R_LightsInit(Sendai::Scene &Scene, const Sendai::Camera &Camera)
 {
-	Scene->ActiveLightMask = 0;
-	Scene->ActiveLightMask |= (1 << 0);
-	Scene->Data = {
+	Scene.ActiveLightMask = 0;
+	Scene.ActiveLightMask |= (1 << 0);
+	Scene.Data = {
 	  .Lights =
 		  {
 			{.LightPosition = {0.0f, 10.0f, 0.0f}, .LightColor = {300.0f, 100.0f, 100.0f}},
@@ -27,12 +27,12 @@ R_LightsInit(S_Scene *const Scene, const Sendai::Camera *const Camera)
 			{.LightPosition = {0.0f, 0.0f, 0.0f}, .LightColor = {100.0f, 100.0f, 100.0f}},
 			{.LightPosition = {0.0f, 0.0f, 0.0f}, .LightColor = {100.0f, 100.0f, 100.0f}},
 		  },
-	  .CameraPosition = Camera->GetPosition(),
+	  .CameraPosition = Camera.GetPosition(),
 	};
 }
 
-void
-R_UpdateLights(BYTE ActiveLightMask, const R_Light *const InLights, R_Light *const OutLights, UINT NumLights)
+VOID
+R_UpdateLights(BYTE ActiveLightMask, const Sendai::Light *const InLights, Sendai::Light *const OutLights, UINT NumLights)
 {
 	for (UINT i = 0; i < NumLights; i++) {
 		if (IS_LIGHT_ACTIVE(ActiveLightMask, i)) {
@@ -42,15 +42,19 @@ R_UpdateLights(BYTE ActiveLightMask, const R_Light *const InLights, R_Light *con
 	}
 }
 
-void
-R_RenderLightBillboards(R_Core *const Renderer, const R_Light *Lights, BYTE ActiveLightMask, R_MeshConstants *const MeshConstants)
+VOID
+R_RenderLightBillboards(Sendai::Renderer *const Renderer,
+						const Sendai::Light *Lights,
+						BYTE ActiveLightMask,
+						Sendai::MeshConstants *const MeshConstants)
 {
 	Renderer->CommandList->SetGraphicsRootSignature(Renderer->RootSignBillboard.Get());
-	Renderer->CommandList->SetPipelineState(Renderer->PipelineState[ERS_BILLBOARD].Get());
+	Renderer->CommandList->SetPipelineState(Renderer->PipelineState[Sendai::ERenderState::ERS_BILLBOARD].Get());
 	Renderer->CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
 	D3D12_GPU_DESCRIPTOR_HANDLE LampTextureHandle =	Renderer->TexturesHeap->GetGPUDescriptorHandleForHeapStart();
-	LampTextureHandle.ptr += (UINT64)ERSI_BILLBOARD_LAMP * Renderer->DescriptorHandleIncrementSize[D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV];
+	LampTextureHandle.ptr +=
+		(UINT64)Sendai::EReservedSrvIndex::ERSI_BILLBOARD_LAMP * Renderer->DescriptorHandleIncrementSize[D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV];
 	Renderer->CommandList->SetGraphicsRootDescriptorTable(1, LampTextureHandle);
 
 	for (int i = 0; i < PBR_MAX_LIGHT_NUMBER; ++i) {
@@ -62,11 +66,11 @@ R_RenderLightBillboards(R_Core *const Renderer, const R_Light *Lights, BYTE Acti
 	}
 }
 
-void
-RenderLightBillboard(const R_MeshConstants *const MeshConstants, R_Core *const Renderer, XMFLOAT3 Tint)
+VOID
+RenderLightBillboard(const Sendai::MeshConstants *const MeshConstants, Sendai::Renderer *const Renderer, XMFLOAT3 Tint)
 {
-	R_LightBillboardConstants CB = {.MVP = MeshConstants->MVP, .Tint = Tint};
-	memcpy(Renderer->MeshDataUploadBufferCpuAddress + Renderer->MeshDataOffset, &CB, sizeof(R_LightBillboardConstants));
+	Sendai::LightBillboardConstants CB = {.MVP = MeshConstants->MVP, .Tint = Tint};
+	std::memcpy(Renderer->MeshDataUploadBufferCpuAddress + Renderer->MeshDataOffset, &CB, sizeof(Sendai::LightBillboardConstants));
 
 	Renderer->CommandList->SetGraphicsRootConstantBufferView(0, M_GpuAddress(Renderer->MeshDataUploadBuffer.Get(), Renderer->MeshDataOffset));
 
@@ -78,5 +82,5 @@ RenderLightBillboard(const R_MeshConstants *const MeshConstants, R_Core *const R
 	Renderer->CommandList->IASetVertexBuffers(0, 1, &VBV);
 	Renderer->CommandList->DrawInstanced(4, 1, 0, 0);
 
-	Renderer->MeshDataOffset += CB_ALIGN(R_LightBillboardConstants);
+	Renderer->MeshDataOffset += CB_ALIGN(Sendai::LightBillboardConstants);
 }

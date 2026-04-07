@@ -5,22 +5,35 @@
 #include "scene.h"
 #include "timer.h"
 #include <string>
+#include <memory>
 
 namespace Sendai {
 
-struct App {
+struct AppWindow {
+	AppWindow(std::wstring Title, UINT Width, UINT Height) : Title{Title}, Width{Width}, Height{Height} {}
+
 	std::wstring Title;
 	std::wstring Window;
 	HINSTANCE hInstance;
 	HWND hWnd;
+	UINT Width;
+	UINT Height;
+	FLOAT AspectRatio;
+};
+
+struct App {
+	App(std::wstring Title);
+	VOID Update();
+
+	AppWindow Window;
 	BOOL bRunning;
 
-	R_Core RendererCore;
+	std::unique_ptr<Renderer> RendererCore;
 
 	// S_UI UI;
 	Camera Camera;
 	StepTimer Timer;
-	S_Scene Scene;
+	Sendai::Scene Scene;
 	UINT FrameCounter;
 };
 

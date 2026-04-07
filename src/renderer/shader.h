@@ -1,6 +1,6 @@
 #pragma once
 
-struct R_Core;
+struct Sendai::Renderer;
 struct ID3D12Device;
 struct ID3D12RootSignature;
 
@@ -10,7 +10,7 @@ typedef enum EShaderType {
 } EShaderType;
 
 HRESULT R_CompileShader(std::wstring &FilePath, ID3DBlob **Blob, EShaderType ShaderType);
-void R_CreatePBRPipelineState(R_Core *Renderer);
-void R_CreateBillboardPipelineState(R_Core *Renderer);
-void R_CreateGridPipelineState(R_Core *Renderer);
+void R_CreatePBRPipelineState(Sendai::Renderer *Renderer);
+void R_CreateBillboardPipelineState(Sendai::Renderer *Renderer);
+void R_CreateGridPipelineState(Sendai::Renderer *Renderer);
 XMMATRIX R_NormalMatrix(XMFLOAT4X4 *Model);

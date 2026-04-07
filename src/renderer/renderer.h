@@ -10,16 +10,14 @@
 
 using Microsoft::WRL::ComPtr;
 
-#define FRAME_COUNT 2
+constexpr UINT FRAME_COUNT = 2;
 
-struct R_Camera;
 struct R_Primitive;
-struct R_Texture;
+struct Sendai::Texture;
 struct TextureLookup;
 
 namespace Sendai {
 class Camera;
-}
 
 enum EReservedSrvIndex {
 	ERSI_BILLBOARD_LAMP = 0,
@@ -34,12 +32,8 @@ struct R_UploadBuffer {
 	UINT64 CurrentOffset;
 };
 
-struct R_Core {
-	HWND hWnd;
-	UINT Width;
-	UINT Height;
+struct Renderer {
 	FLOAT AspectRatio;
-
 	ComPtr<IDXGIAdapter3> Adapter;
 
 	D3D12_VIEWPORT Viewport;
@@ -107,11 +101,28 @@ struct R_Core {
 	UINT64 CurrentUploadBufferOffset;
 	UINT64 CurrentVertexBufferOffset;
 	UINT64 CurrentIndexBufferOffset;
+
+	Renderer(HWND hWnd, UINT Width, UINT Height);
+	~Renderer();
+	VOID Draw(const Sendai::Scene &Scene, const Sendai::Camera &Camera);
+	VOID ExecuteCommands();
+	VOID SwapchainResize(INT Width, INT Height);
+	VOID RenderLightBillboards(const Light *Lights, BYTE ActiveLightMask, MeshConstants *const MeshConstants);
+
+  private:
+	VOID SetRtvBuffers();
+	VOID GetAdapter(IDXGIFactory2 *Factory);
+
+	VOID CreateSceneResources();
+	VOID CreateBaseEngineTextures();
+	VOID CreateDepthStencilBuffer(UINT Width, UINT Height);
+	VOID CreateShaders();
+
+
+	SceneData PreprocessSceneData(const Scene &Scene);
+	VOID SignalAndWait();
+	VOID RenderPrimitives(const Scene &Scene, MeshConstants &MeshConstants);
+	VOID RenderLightBillboard(const MeshConstants *const MeshConstants, XMFLOAT3 Tint);
 };
 
-void R_Init(R_Core *const Renderer, HWND hWnd);
-void R_Destroy(R_Core *Renderer);
-void R_Draw(R_Core *const Renderer, const S_Scene *const Scene, const Sendai::Camera *const Camera);
-void Draw(R_Core *const Renderer, const Sendai::Camera *const Camera, const S_Scene *const Scene);
-void R_ExecuteCommands(R_Core *const Renderer);
-void R_SwapchainResize(R_Core *const Renderer, INT Width, INT Height);
+} // namespace Sendai

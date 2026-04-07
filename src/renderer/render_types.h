@@ -1,17 +1,22 @@
 #pragma once
 
 #include "DirectXMathC.h"
+#include <array>
+#include <memory>
 #include <string>
+#include <vector>
 
-typedef struct R_Vertex {
+namespace Sendai {
+
+struct Vertex {
 	XMFLOAT3 Position;
 	XMFLOAT3 Normal;
 	XMFLOAT4 Tangent;
 	XMFLOAT2 UV0;
 	XMFLOAT2 UV1;
-} R_Vertex;
+};
 
-typedef struct R_PBRConstantBuffer {
+struct PBRConstantBuffer {
 	XMFLOAT4 BaseColorFactor;
 	FLOAT MetallicFactor;
 	FLOAT RoughnessFactor;
@@ -19,6 +24,7 @@ typedef struct R_PBRConstantBuffer {
 
 	XMFLOAT3 EmissiveFactor;
 	FLOAT Padding1;
+	FLOAT XXX;
 
 	XMFLOAT2 UVOffset;
 	XMFLOAT2 UVScale;
@@ -29,84 +35,81 @@ typedef struct R_PBRConstantBuffer {
 	UINT32 MetallicTextureIndex;
 	UINT32 OcclusionTextureIndex;
 	UINT32 EmissiveTextureIndex;
-} R_PBRConstantBuffer;
+};
 
-#define NUM_32BITS_PBR_VALUES sizeof(R_PBRConstantBuffer) / 4
+constexpr size_t NUM_32BITS_PBR_VALUES = sizeof(PBRConstantBuffer) / 4;
 
-typedef struct R_Light {
+struct Light {
 	XMFLOAT3 LightPosition;
 	FLOAT Padding0;
 	XMFLOAT3 LightColor;
 	FLOAT Padding1;
-} R_Light;
+};
 
-typedef struct R_SceneData {
-	R_Light Lights[7];
+struct SceneData {
+	Light Lights[7];
 
 	XMFLOAT3 CameraPosition;
 	FLOAT Padding0;
-} R_SceneData;
+};
 
-typedef struct R_MVP {
+struct MVP {
 	XMMATRIX Model;
 	XMMATRIX View;
 	XMMATRIX Proj;
-} R_MVP;
+};
 
-typedef struct R_MeshConstants {
-	R_MVP MVP;
+struct MeshConstants {
+	MVP MVP;
 	XMMATRIX Normal;
-} R_MeshConstants;
+};
 
-typedef struct R_LightBillboardConstants {
-	R_MVP MVP;
+struct LightBillboardConstants {
+	MVP MVP;
 	XMFLOAT3 Tint;
-} R_LightBillboardConstants;
+};
 
-typedef struct R_Texture {
+struct Texture {
 	INT Width;
 	INT Height;
 	INT Channels;
-	std::wstring Name;
+	const wchar_t *Name;
 	size_t Size;
-
-	const UINT8 *MipPixels[D3D12_REQ_MIP_LEVELS];
+	std::array<const UINT8 *, D3D12_REQ_MIP_LEVELS> MipPixels;
 	UINT MipLevels;
-} R_Texture;
+};
 
-typedef struct R_Primitive {
+struct Primitive {
 	D3D12_VERTEX_BUFFER_VIEW VertexBufferView;
 
 	D3D12_INDEX_BUFFER_VIEW IndexBufferView;
 	UINT IndexCount;
 
-	R_PBRConstantBuffer ConstantBuffer;
-} R_Primitive;
+	PBRConstantBuffer ConstantBuffer;
+};
 
-typedef struct R_Mesh {
-	R_Primitive *Primitives;
-	size_t PrimitivesCount;
-} R_Mesh;
+struct Mesh {
+	std::vector<Primitive> Primitives;
+};
 
-typedef struct R_Node {
-	R_Mesh *Mesh;
+struct Node {
+	std::unique_ptr<Mesh> MeshData;
 
 	// RH and Row-Major
 	XMFLOAT4X4 ModelMatrix;
-} R_Node;
+};
 
-typedef struct R_Model {
+struct Model {
 	std::wstring Name;
 
-	R_Node *Nodes;
-	size_t NodesCount;
+	std::vector<Node> Nodes;
+	std::vector<Texture> Images;
 
-	XMFLOAT3 Position;
-	XMFLOAT3 Rotation;
-	XMFLOAT3 Scale;
-
-	R_Texture *Images;
-	size_t ImagesCount;
+	XMFLOAT3 Position{0.0f, 0.0f, 0.0f};
+	XMFLOAT3 Rotation{0.0f, 0.0f, 0.0f};
+	XMFLOAT3 Scale{1.0f, 1.0f, 1.0f};
 
 	BOOL Visible;
-} R_Model;
+};
+
+} // namespace Sendai

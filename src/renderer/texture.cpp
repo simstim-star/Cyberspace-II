@@ -11,18 +11,19 @@
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include "../../deps/stb_image_resize2.h"
 
-static const UINT8 WHITE_PIXEL[] = {255, 255, 255, 255};
+constexpr UINT8 WHITE_PIXEL[] = {255, 255, 255, 255};
 
-static const R_Texture WhiteTexture = {
+constexpr Sendai::Texture WhiteTexture = {
   .Width = 1,
   .Height = 1,
   .Name = L"fallback_white",
+  .Size = 4,
   .MipPixels = {WHITE_PIXEL},
   .MipLevels = 1,
 };
 
 void
-R_CreateUITexture(std::wstring &Path, R_Core *Renderer, UINT nkSlotIndex)
+R_CreateUITexture(std::wstring &Path, Sendai::Renderer *Renderer, UINT nkSlotIndex)
 {
 	if (Renderer->Textures.contains(Path)) {
 		return;
@@ -37,17 +38,16 @@ R_CreateUITexture(std::wstring &Path, R_Core *Renderer, UINT nkSlotIndex)
 	UINT8 *Pixels = stbi_load_from_file(f, &W, &H, NULL, 4);
 	fclose(f);
 
-	R_Texture Source = {
+	Sendai::Texture Source = {
 	  .Width = W,
 	  .Height = H,
-	  .Name = Path,
+	  .Name = Path.c_str(),
 	  .MipPixels = {Pixels},
 	  .MipLevels = 1,
 	};
 
 	GPUTexture NewTex = {0};
 	NewTex.GpuTexture = R_CommandCreateTextureGPU(Renderer, &Source);
-	//UI_SetTextureInNkHeap(nkSlotIndex, NewTex.GpuTexture);
 
 	Renderer->Textures.insert({Path, NewTex});
 
@@ -55,7 +55,7 @@ R_CreateUITexture(std::wstring &Path, R_Core *Renderer, UINT nkSlotIndex)
 }
 
 GPUTexture
-R_UploadTexture(R_Core *const Renderer, const R_Texture *const Source)
+R_UploadTexture(Sendai::Renderer *const Renderer, const Sendai::Texture *const Source)
 {
 	if (Renderer->Textures.contains(Source->Name)) {
 		return Renderer->Textures[Source->Name];
@@ -83,7 +83,7 @@ R_UploadTexture(R_Core *const Renderer, const R_Texture *const Source)
 }
 
 void
-R_CreateCustomTexture(std::wstring &Path, R_Core *Renderer)
+R_CreateCustomTexture(std::wstring &Path, Sendai::Renderer *Renderer)
 {
 	INT W, H;
 	FILE *f = _wfopen(Path.c_str(), L"rb");
@@ -92,13 +92,13 @@ R_CreateCustomTexture(std::wstring &Path, R_Core *Renderer)
 	}
 	UINT8 *Pixels = stbi_load_from_file(f, &W, &H, NULL, 4);
 	fclose(f);
-	R_Texture Source = {.Width = W, .Height = H, .Name = Path, .MipPixels = {Pixels}, .MipLevels = 1};
+	Sendai::Texture Source = {.Width = W, .Height = H, .Name = Path.c_str(), .MipPixels = {Pixels}, .MipLevels = 1};
 	R_UploadTexture(Renderer, &Source);
 	stbi_image_free(Pixels);
 }
 
 ComPtr<ID3D12Resource>
-R_CommandCreateTextureGPU(R_Core *const Renderer, const R_Texture *const SourceTexture)
+R_CommandCreateTextureGPU(Sendai::Renderer *const Renderer, const Sendai::Texture *const SourceTexture)
 {
 	D3D12_RESOURCE_DESC TexDesc = {
 	  .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
@@ -122,8 +122,7 @@ R_CommandCreateTextureGPU(R_Core *const Renderer, const R_Texture *const SourceT
 	UINT64 RowSizeInBytes[D3D12_REQ_MIP_LEVELS];
 	UINT64 TotalUploadSize = 0;
 
-	Renderer->Device->GetCopyableFootprints(&TexDesc, 0, SourceTexture->MipLevels, 0, Layouts, NumRows, RowSizeInBytes,
-									   &TotalUploadSize);
+	Renderer->Device->GetCopyableFootprints(&TexDesc, 0, SourceTexture->MipLevels, 0, Layouts, NumRows, RowSizeInBytes, &TotalUploadSize);
 
 	UINT64 Offset = R_SuballocateTextureUpload(Renderer, TotalUploadSize);
 	UINT8 *pUploadBufferBase = Renderer->TextureUploadBuffer.BaseMappedPtr + Offset;
@@ -132,7 +131,7 @@ R_CommandCreateTextureGPU(R_Core *const Renderer, const R_Texture *const SourceT
 		UINT8 *pDestination = pUploadBufferBase + Layouts[MipLevel].Offset;
 		UINT8 *pSource = (UINT8 *)SourceTexture->MipPixels[MipLevel];
 		for (UINT y = 0; y < NumRows[MipLevel]; y++) {
-			memcpy(pDestination + (y * Layouts[MipLevel].Footprint.RowPitch), pSource + (y * RowSizeInBytes[MipLevel]),
+			std::memcpy(pDestination + (y * Layouts[MipLevel].Footprint.RowPitch), pSource + (y * RowSizeInBytes[MipLevel]),
 				   RowSizeInBytes[MipLevel]);
 		}
 		D3D12_TEXTURE_COPY_LOCATION DestinationLocation = {
@@ -153,17 +152,17 @@ R_CommandCreateTextureGPU(R_Core *const Renderer, const R_Texture *const SourceT
 									  }};
 	Renderer->CommandList->ResourceBarrier(1, &Barrier);
 
-	Texture->SetName(SourceTexture->Name.c_str());
+	Texture->SetName(SourceTexture->Name);
 	return Texture;
 }
 
 UINT64
-R_SuballocateTextureUpload(R_Core *const Renderer, UINT64 Size)
+R_SuballocateTextureUpload(Sendai::Renderer *const Renderer, UINT64 Size)
 {
 	UINT64 AlignedOffset = ROUND_UP_POWER_OF_2(Renderer->TextureUploadBuffer.CurrentOffset, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
 
 	if (AlignedOffset + Size > Renderer->TextureUploadBuffer.Size) {
-		R_ExecuteCommands(Renderer);
+		Renderer->ExecuteCommands();
 		Renderer->TextureUploadBuffer.CurrentOffset = Size;
 		return 0;
 	}
@@ -173,10 +172,10 @@ R_SuballocateTextureUpload(R_Core *const Renderer, UINT64 Size)
 }
 
 UINT32
-R_GetTextureIndex(R_Core *const Renderer, const R_Texture *const Texture)
+R_GetTextureIndex(Sendai::Renderer *const Renderer, const Sendai::Texture *const Texture)
 {
-	R_Texture Target;
-	if (Texture && !Texture->Name.empty()) {
+	Sendai::Texture Target;
+	if (Texture && Texture->Name) {
 		Target = *Texture;
 	} else {
 		Target = WhiteTexture;
@@ -193,10 +192,10 @@ R_CalculateMipLevels(INT Width, INT Height)
 }
 
 void
-R_GenerateMips(R_Model *Model, M_Arena *UploadArena)
+R_GenerateMips(Sendai::Model *Model, M_Arena *UploadArena)
 {
-	for (size_t i = 0; i < Model->ImagesCount; ++i) {
-		R_Texture *Texture = &Model->Images[i];
+	for (size_t i = 0; i < Model->Images.size(); ++i) {
+		Sendai::Texture *Texture = &Model->Images[i];
 
 		if (Texture->MipPixels[0] == NULL || Texture->MipLevels <= 1) {
 			continue;
@@ -209,7 +208,7 @@ R_GenerateMips(R_Model *Model, M_Arena *UploadArena)
 			INT NextWidth = CurrentWidth > 1 ? CurrentWidth / 2 : 1;
 			INT NextHeight = CurrentHeight > 1 ? CurrentHeight / 2 : 1;
 
-			Texture->MipPixels[MipLevel] = (UINT8*)M_ArenaAlloc(UploadArena, NextWidth * NextHeight * 4);
+			Texture->MipPixels[MipLevel] = (UINT8 *)M_ArenaAlloc(UploadArena, NextWidth * NextHeight * 4);
 
 			stbir_resize_uint8_linear((unsigned char *)Texture->MipPixels[MipLevel - 1], CurrentWidth, CurrentHeight, 0,
 									  (unsigned char *)Texture->MipPixels[MipLevel], NextWidth, NextHeight, 0, STBIR_RGBA);

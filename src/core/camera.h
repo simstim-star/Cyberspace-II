@@ -11,7 +11,7 @@ class Camera {
 	void OnKeyUp(WPARAM Key);
 	void Reset();
 
-	XMMATRIX
+	inline XMMATRIX
 	ViewMatrix() const
 	{
 		XMVECTOR EyePosition = XMLoadFloat3(&_Position);
