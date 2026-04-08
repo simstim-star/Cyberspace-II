@@ -5,12 +5,6 @@
 #define CGLTF_IMPLEMENTATION
 #include "../../deps/cgltf.h"
 
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_WINDOWS_UTF8
-#include "../../deps/stb_image.h"
-
-#include "../../deps/b64.h"
-
 #include "../core/log.h"
 #include "../core/memory.h"
 #include "../core/scene.h"
@@ -22,717 +16,780 @@
 #include <format>
 #include <iostream>
 
+#include "../../deps/stb_image.h"
+
+#include "../../deps/b64.h"
+
 /****************************************************
-	Helper structs
+    Helper structs
 *****************************************************/
 
-typedef struct MeshLookup {
-	cgltf_mesh *key;
-	Sendai::Mesh *value;
+typedef struct MeshLookup
+{
+    cgltf_mesh *key;
+    Sendai::Mesh *value;
 } MeshLookup;
 
 /****************************************************
-	Forward declaration of private functions
+    Forward declaration of private functions
 *****************************************************/
 
 cgltf_data *GetData(std::wstring &Path, M_Arena *UploadArena);
 
-void LoadNodes(Sendai::Renderer *Renderer, Sendai::Model *Model, cgltf_data *Data, M_Arena *SceneArena, M_Arena *UploadArena);
+VOID LoadNodes(Sendai::Renderer *Renderer, Sendai::Model *Model, cgltf_data *Data, M_Arena *SceneArena,
+               M_Arena *UploadArena);
 
-void PreloadImages(Sendai::Model *Model, cgltf_data *Data, std::wstring &Path, M_Arena *UploadArena);
+VOID PreloadImages(Sendai::Model *Model, cgltf_data *Data, std::wstring &Path, M_Arena *UploadArena);
 
-BOOL ExtractImageData(_In_z_ std::wstring &BasePath, _In_ cgltf_image *Img, _In_ M_Arena *UploadArena, _Out_ Sendai::Texture *Texture);
+BOOL ExtractImageData(_In_z_ std::wstring &BasePath, _In_ cgltf_image *Img, _In_ M_Arena *UploadArena,
+                      _Out_ Sendai::Texture *Texture);
 
-LONG LoadGLTFFile(_In_z_ std::wstring &Path, _In_ M_Arena *Arena, _Outptr_ void **Data);
+LONG LoadGLTFFile(_In_z_ std::wstring &Path, _In_ M_Arena *Arena, _Outptr_ VOID **Data);
 
-cgltf_result LoadGLTFBuffers(_In_ const cgltf_options *Options, _In_ M_Arena *Arena, _Inout_ cgltf_data *Data, _In_z_ std::wstring &Path);
+cgltf_result LoadGLTFBuffers(_In_ const cgltf_options *Options, _In_ M_Arena *Arena, _Inout_ cgltf_data *Data,
+                             _In_z_ std::wstring &Path);
 
 std::wstring CreateTextureName(cgltf_image *BaseImage, const std::wstring &Path, int i);
 
 BOOL IsDataEmbedded(const cgltf_image *const BaseImage);
 
-void RetriveAttributeData(cgltf_primitive *PrimitiveData,
-						  cgltf_accessor *UVAccessorsData[2],
-						  cgltf_accessor *AccessorsData[cgltf_attribute_type_max_enum]);
+VOID RetriveAttributeData(cgltf_primitive *PrimitiveData, cgltf_accessor *UVAccessorsData[2],
+                          cgltf_accessor *AccessorsData[cgltf_attribute_type_max_enum]);
 
-void LoadPBRData(
-	Sendai::Renderer *Renderer, Sendai::Texture *const Images, cgltf_image *ImagesData, cgltf_material *Material, Sendai::PBRConstantBuffer *CB);
+VOID LoadPBRData(Sendai::Renderer &Renderer, Sendai::Texture *const Images, cgltf_image *ImagesData,
+                 cgltf_material *Material, Sendai::PBRConstantBuffer *CB);
 
-void LoadVerticesAndIndicesIntoBuffers(Sendai::Renderer *Renderer,
-									   Sendai::Primitive *Primitive,
-									   cgltf_accessor *PositionAccessor,
-									   cgltf_accessor *NormalAccessor,
-									   cgltf_accessor *TangentAccessor,
-									   cgltf_accessor *IndicesAccessor,
-									   cgltf_accessor *UVAccessorsData[2],
-									   M_Arena *Arena);
+VOID LoadVerticesAndIndicesIntoBuffers(Sendai::Renderer *Renderer, Sendai::Primitive *Primitive,
+                                       cgltf_accessor *PositionAccessor, cgltf_accessor *NormalAccessor,
+                                       cgltf_accessor *TangentAccessor, cgltf_accessor *IndicesAccessor,
+                                       cgltf_accessor *UVAccessorsData[2], M_Arena *Arena);
 
-XMFLOAT4 *ComputeTangents(cgltf_accessor *PositionAccessor,
-						  cgltf_accessor *NormalAccessor,
-						  cgltf_accessor *UVAccessor,
-						  cgltf_accessor *IndicesAccessor,
-						  M_Arena *Arena);
+XMFLOAT4 *ComputeTangents(cgltf_accessor *PositionAccessor, cgltf_accessor *NormalAccessor, cgltf_accessor *UVAccessor,
+                          cgltf_accessor *IndicesAccessor, M_Arena *Arena);
 
 /* The below functions are to inject into gltf loader to use my arena */
 
-void *
-cgltf_arena_alloc(void *user, cgltf_size size)
+VOID *cgltf_arena_alloc(VOID *user, cgltf_size size)
 {
-	return M_ArenaAlloc((M_Arena *)user, size);
+    return M_ArenaAlloc((M_Arena *)user, size);
 }
 
-void
-cgltf_arena_free(void *user, void *ptr)
+VOID cgltf_arena_free(VOID *user, VOID *ptr)
 {
-	/* arena handles lifetime */
-}
-
-/****************************************************
-	Public functions
-*****************************************************/
-
-BOOL
-SendaiGLTF_LoadModel(Sendai::Renderer *Renderer, std::wstring &Path, Sendai::Scene &Scene)
-{
-	cgltf_data *Data = GetData(Path, &Scene.UploadArena);
-	if (Data == NULL) {
-		return FALSE;
-	}
-
-	Sendai::Model *Model = &Scene.Models.back();
-	Model->Scale = {.x = 1, .y = 1, .z = 1};
-	Model->Visible = TRUE;
-	Model->Name = Win32GetFileNameOnly(Path);
-
-	if (Data->images_count > 0) {
-		PreloadImages(Model, Data, Path, &Scene.UploadArena);
-	}
-
-	R_GenerateMips(Model, &Scene.UploadArena);
-	LoadNodes(Renderer, Model, Data, &Scene.SceneArena, &Scene.UploadArena);
-	cgltf_free(Data);
-
-	D3D12_RESOURCE_BARRIER VBBarrier = {.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
-										.Transition = {.pResource = Renderer->VertexBufferDefault.Get(),
-													   .Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-													   .StateBefore = D3D12_RESOURCE_STATE_COPY_DEST,
-													   .StateAfter = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER}};
-	Renderer->CommandList->ResourceBarrier(1, &VBBarrier);
-
-	D3D12_RESOURCE_BARRIER IBBarrier = {.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
-										.Transition = {
-										  .pResource = Renderer->IndexBufferDefault.Get(),
-										  .Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-										  .StateBefore = D3D12_RESOURCE_STATE_COPY_DEST,
-										  .StateAfter = D3D12_RESOURCE_STATE_INDEX_BUFFER,
-										}};
-	Renderer->CommandList->ResourceBarrier(1, &IBBarrier);
-
-	Sendai::LOG.Appendf(L"Successfully loaded %s\n", Path);
-	return TRUE;
+    /* arena handles lifetime */
 }
 
 /****************************************************
-	Implementation of private functions
+    Public functions
 *****************************************************/
 
-void
-LoadNodes(Sendai::Renderer *Renderer, Sendai::Model *Model, cgltf_data *Data, M_Arena *SceneArena, M_Arena *UploadArena)
+BOOL SendaiGLTF_LoadModel(Sendai::Renderer *Renderer, std::wstring &Path, Sendai::Scene &Scene)
 {
-	Sendai::Mesh *Meshes = (Sendai::Mesh *)M_ArenaAlloc(SceneArena, Data->meshes_count * sizeof(Sendai::Mesh));
-	std::unordered_map<cgltf_mesh *, Sendai::Mesh *> MeshMap;
+    cgltf_data *Data = GetData(Path, &Scene.UploadArena);
+    if (Data == NULL)
+    {
+        return FALSE;
+    }
 
-	for (INT MeshIndex = 0; MeshIndex < Data->meshes_count; MeshIndex++) {
-		cgltf_mesh *MeshData = &Data->meshes[MeshIndex];
-		Sendai::Mesh *CurrentMesh = &Meshes[MeshIndex];
+    Sendai::Model *Model = &Scene.Models.back();
+    Model->Scale = {.x = 1, .y = 1, .z = 1};
+    Model->Visible = TRUE;
+    Model->Name = Win32GetFileNameOnly(Path);
 
-		CurrentMesh->Primitives.reserve(MeshData->primitives_count);
+    if (Data->images_count > 0)
+    {
+        PreloadImages(Model, Data, Path, &Scene.UploadArena);
+    }
 
-		for (cgltf_size PrimitiveId = 0; PrimitiveId < MeshData->primitives_count; PrimitiveId++) {
-			cgltf_primitive *PrimitiveData = &MeshData->primitives[PrimitiveId];
+    Renderer->Textures->GenerateMips(Model, &Scene.UploadArena);
+    LoadNodes(Renderer, Model, Data, &Scene.SceneArena, &Scene.UploadArena);
+    cgltf_free(Data);
 
-			cgltf_accessor *Accessors[cgltf_attribute_type_max_enum] = {0};
-			cgltf_accessor *UVAccessorsData[2] = {0};
-			RetriveAttributeData(PrimitiveData, UVAccessorsData, Accessors);
+    D3D12_RESOURCE_BARRIER VBBarrier = {.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+                                        .Transition = {.pResource = Renderer->VertexBufferDefault.Get(),
+                                                       .Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                                       .StateBefore = D3D12_RESOURCE_STATE_COPY_DEST,
+                                                       .StateAfter = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER}};
+    Renderer->CommandList->ResourceBarrier(1, &VBBarrier);
 
-			Sendai::Primitive *Primitive = &CurrentMesh->Primitives[PrimitiveId];
+    D3D12_RESOURCE_BARRIER IBBarrier = {.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+                                        .Transition = {
+                                            .pResource = Renderer->IndexBufferDefault.Get(),
+                                            .Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                            .StateBefore = D3D12_RESOURCE_STATE_COPY_DEST,
+                                            .StateAfter = D3D12_RESOURCE_STATE_INDEX_BUFFER,
+                                        }};
+    Renderer->CommandList->ResourceBarrier(1, &IBBarrier);
 
-			LoadVerticesAndIndicesIntoBuffers(Renderer, Primitive, Accessors[cgltf_attribute_type_position],
-											  Accessors[cgltf_attribute_type_normal], Accessors[cgltf_attribute_type_tangent],
-											  PrimitiveData->indices, UVAccessorsData, UploadArena);
-			// LoadPBRData(Renderer, Model->Images, Data->images, PrimitiveData->material, &Primitive->ConstantBuffer);
-		}
-
-		MeshMap.insert({MeshData, CurrentMesh});
-	}
-
-	// Model->Nodes = (Sendai::Node *)M_ArenaAlloc(SceneArena, Data->nodes_count * sizeof(R_Node));
-	// Model->NodesCount = 0;
-
-	// for (; Model->NodesCount < Data->nodes_count; Model->NodesCount++) {
-	//	UINT NodeIndex = Model->NodesCount;
-	//	cgltf_node *NodeData = &Data->nodes[NodeIndex];
-	//	Sendai::Node *CurrentNode = &Model->Nodes[NodeIndex];
-	//
-	//	// Note: Mesh->Transform is col-major, but XMLoadFloat4x4 expects row-major.
-	//	// This way, the matrix is automatically transposed already, because XMLoadFloat4x4
-	//	// will pick as row what is col and vice-versa. Therefore, ModelMatrix is Mesh->Transform
-	//	// converted to row-major.
-	//	cgltf_float TransformColMajor[4][4];
-	//	cgltf_node_transform_world(NodeData, (cgltf_float *)TransformColMajor);
-	//	/* Corrections for left-hand system */
-	//	TransformColMajor[3][2] *= -1.0f;
-	//	TransformColMajor[0][2] *= -1.0f;
-	//	TransformColMajor[1][2] *= -1.0f;
-	//	TransformColMajor[2][0] *= -1.0f;
-	//	TransformColMajor[2][1] *= -1.0f;
-	//	memcpy(&CurrentNode->ModelMatrix, TransformColMajor, sizeof(XMFLOAT4X4));
-	//
-	//	if (NodeData->mesh) {
-	//		CurrentNode->Mesh = MeshMap.at(NodeData->mesh);
-	//	}
-	// }
+    Sendai::LOG.Appendf(L"Successfully loaded %s\n", Path);
+    return TRUE;
 }
 
-cgltf_data *
-GetData(std::wstring &Path, M_Arena *UploadArena)
+/****************************************************
+    Implementation of private functions
+*****************************************************/
+
+VOID LoadNodes(Sendai::Renderer *Renderer, Sendai::Model *Model, cgltf_data *Data, M_Arena *SceneArena,
+               M_Arena *UploadArena)
 {
-	void *FileData = NULL;
+    Sendai::Mesh *Meshes = (Sendai::Mesh *)M_ArenaAlloc(SceneArena, Data->meshes_count * sizeof(Sendai::Mesh));
+    std::unordered_map<cgltf_mesh *, Sendai::Mesh *> MeshMap;
 
-	LONG Size = LoadGLTFFile(Path, UploadArena, &FileData);
-	if (Size <= 0) {
-		Sendai::LOG.Appendf(L"Failed to load %s\n", Path);
-		return NULL;
-	}
+    for (INT MeshIndex = 0; MeshIndex < Data->meshes_count; MeshIndex++)
+    {
+        cgltf_mesh *MeshData = &Data->meshes[MeshIndex];
+        Sendai::Mesh *CurrentMesh = &Meshes[MeshIndex];
 
-	cgltf_options Options = {};
-	Options.memory.alloc_func = cgltf_arena_alloc;
-	Options.memory.free_func = cgltf_arena_free;
-	Options.memory.user_data = UploadArena;
+        CurrentMesh->Primitives.reserve(MeshData->primitives_count);
 
-	cgltf_data *Data = NULL;
-	if (cgltf_parse(&Options, FileData, Size, &Data) != cgltf_result_success) {
-		if (Data) {
-			cgltf_free(Data);
-		}
-		Sendai::LOG.Appendf(L"Failed to parse %s\n", Path);
-		return NULL;
-	}
+        for (cgltf_size PrimitiveId = 0; PrimitiveId < MeshData->primitives_count; PrimitiveId++)
+        {
+            cgltf_primitive *PrimitiveData = &MeshData->primitives[PrimitiveId];
 
-	if (LoadGLTFBuffers(&Options, UploadArena, Data, Path) != cgltf_result_success) {
-		if (Data) {
-			cgltf_free(Data);
-		}
-		Sendai::LOG.Appendf(L"Failed to load GLTF buffers from %s\n", Path);
-		return NULL;
-	}
-	return Data;
+            cgltf_accessor *Accessors[cgltf_attribute_type_max_enum] = {0};
+            cgltf_accessor *UVAccessorsData[2] = {0};
+            RetriveAttributeData(PrimitiveData, UVAccessorsData, Accessors);
+
+            Sendai::Primitive *Primitive = &CurrentMesh->Primitives[PrimitiveId];
+
+            LoadVerticesAndIndicesIntoBuffers(
+                Renderer, Primitive, Accessors[cgltf_attribute_type_position], Accessors[cgltf_attribute_type_normal],
+                Accessors[cgltf_attribute_type_tangent], PrimitiveData->indices, UVAccessorsData, UploadArena);
+            // LoadPBRData(Renderer, Model->Images, Data->images, PrimitiveData->material, &Primitive->ConstantBuffer);
+        }
+
+        MeshMap.insert({MeshData, CurrentMesh});
+    }
+
+    // Model->Nodes = (Sendai::Node *)M_ArenaAlloc(SceneArena, Data->nodes_count * sizeof(R_Node));
+    // Model->NodesCount = 0;
+
+    // for (; Model->NodesCount < Data->nodes_count; Model->NodesCount++) {
+    //	UINT NodeIndex = Model->NodesCount;
+    //	cgltf_node *NodeData = &Data->nodes[NodeIndex];
+    //	Sendai::Node *CurrentNode = &Model->Nodes[NodeIndex];
+    //
+    //	// Note: Mesh->Transform is col-major, but XMLoadFloat4x4 expects row-major.
+    //	// This way, the matrix is automatically transposed already, because XMLoadFloat4x4
+    //	// will pick as row what is col and vice-versa. Therefore, ModelMatrix is Mesh->Transform
+    //	// converted to row-major.
+    //	cgltf_float TransformColMajor[4][4];
+    //	cgltf_node_transform_world(NodeData, (cgltf_float *)TransformColMajor);
+    //	/* Corrections for left-hand system */
+    //	TransformColMajor[3][2] *= -1.0f;
+    //	TransformColMajor[0][2] *= -1.0f;
+    //	TransformColMajor[1][2] *= -1.0f;
+    //	TransformColMajor[2][0] *= -1.0f;
+    //	TransformColMajor[2][1] *= -1.0f;
+    //	memcpy(&CurrentNode->ModelMatrix, TransformColMajor, sizeof(XMFLOAT4X4));
+    //
+    //	if (NodeData->mesh) {
+    //		CurrentNode->Mesh = MeshMap.at(NodeData->mesh);
+    //	}
+    // }
 }
 
-void
-RetriveAttributeData(cgltf_primitive *PrimitiveData,
-					 cgltf_accessor *UVAccessorsData[2],
-					 cgltf_accessor *AccessorsData[cgltf_attribute_type_max_enum])
+cgltf_data *GetData(std::wstring &Path, M_Arena *UploadArena)
 {
-	for (int AttributeId = 0; AttributeId < PrimitiveData->attributes_count; ++AttributeId) {
-		cgltf_attribute *AttributeData = &PrimitiveData->attributes[AttributeId];
+    VOID *FileData = NULL;
 
-		if (AttributeData->type == cgltf_attribute_type_texcoord) {
-			if (AttributeData->index > 1) {
-				continue;
-			}
-			UVAccessorsData[AttributeData->index] = AttributeData->vertex_data;
-		} else {
-			AccessorsData[AttributeData->type] = AttributeData->vertex_data;
-		}
-	}
+    LONG Size = LoadGLTFFile(Path, UploadArena, &FileData);
+    if (Size <= 0)
+    {
+        Sendai::LOG.Appendf(L"Failed to load %s\n", Path);
+        return NULL;
+    }
+
+    cgltf_options Options = {};
+    Options.memory.alloc_func = cgltf_arena_alloc;
+    Options.memory.free_func = cgltf_arena_free;
+    Options.memory.user_data = UploadArena;
+
+    cgltf_data *Data = NULL;
+    if (cgltf_parse(&Options, FileData, Size, &Data) != cgltf_result_success)
+    {
+        if (Data)
+        {
+            cgltf_free(Data);
+        }
+        Sendai::LOG.Appendf(L"Failed to parse %s\n", Path);
+        return NULL;
+    }
+
+    if (LoadGLTFBuffers(&Options, UploadArena, Data, Path) != cgltf_result_success)
+    {
+        if (Data)
+        {
+            cgltf_free(Data);
+        }
+        Sendai::LOG.Appendf(L"Failed to load GLTF buffers from %s\n", Path);
+        return NULL;
+    }
+    return Data;
 }
 
-void
-LoadVerticesAndIndicesIntoBuffers(Sendai::Renderer *Renderer,
-								  Sendai::Primitive *Primitive,
-								  cgltf_accessor *PositionAccessor,
-								  cgltf_accessor *NormalAccessor,
-								  cgltf_accessor *TangentAccessor,
-								  cgltf_accessor *IndicesAccessor,
-								  cgltf_accessor *UVAccessorsData[2],
-								  M_Arena *Arena)
+VOID RetriveAttributeData(cgltf_primitive *PrimitiveData, cgltf_accessor *UVAccessorsData[2],
+                          cgltf_accessor *AccessorsData[cgltf_attribute_type_max_enum])
 {
-	if (!PositionAccessor) {
-		Sendai::LOG.Append(L"Mesh has no POSITION attribute\n");
-		return;
-	}
+    for (int AttributeId = 0; AttributeId < PrimitiveData->attributes_count; ++AttributeId)
+    {
+        cgltf_attribute *AttributeData = &PrimitiveData->attributes[AttributeId];
 
-	UINT VertexCount = PositionAccessor->count;
-	UINT VertexBufferSize = sizeof(Sendai::Vertex) * VertexCount;
-	Sendai::Vertex *Vertices = (Sendai::Vertex *)M_ArenaAlloc(Arena, VertexBufferSize);
-	XMFLOAT4 *Tangents = NULL;
-	if (PositionAccessor && NormalAccessor && UVAccessorsData[0] && IndicesAccessor) {
-		Tangents = ComputeTangents(PositionAccessor, NormalAccessor, UVAccessorsData[0], IndicesAccessor, Arena);
-	}
-
-	for (UINT VertexIndex = 0; VertexIndex < VertexCount; VertexIndex++) {
-		FLOAT Position[3];
-		cgltf_accessor_read_float(PositionAccessor, VertexIndex, Position, 3);
-		Vertices[VertexIndex].Position = {Position[0], Position[1], -Position[2]};
-
-		if (NormalAccessor) {
-			FLOAT Normal[3];
-			cgltf_accessor_read_float(NormalAccessor, VertexIndex, Normal, 3);
-			Vertices[VertexIndex].Normal.x = Normal[0];
-			Vertices[VertexIndex].Normal.y = Normal[1];
-			Vertices[VertexIndex].Normal.z = -Normal[2];
-		}
-
-		if (TangentAccessor) {
-			FLOAT Tangent[4];
-			cgltf_accessor_read_float(TangentAccessor, VertexIndex, Tangent, 4);
-			Vertices[VertexIndex].Tangent.x = Tangent[0];
-			Vertices[VertexIndex].Tangent.y = Tangent[1];
-			Vertices[VertexIndex].Tangent.z = -Tangent[2];
-			Vertices[VertexIndex].Tangent.w = -Tangent[3];
-		} else if (Tangents) {
-			Vertices[VertexIndex].Tangent.x = Tangents[VertexIndex].x;
-			Vertices[VertexIndex].Tangent.y = Tangents[VertexIndex].y;
-			Vertices[VertexIndex].Tangent.z = Tangents[VertexIndex].z;
-			Vertices[VertexIndex].Tangent.w = Tangents[VertexIndex].w;
-		}
-
-		if (UVAccessorsData[0]) {
-			float uv[2];
-			cgltf_accessor_read_float(UVAccessorsData[0], VertexIndex, uv, 2);
-			Vertices[VertexIndex].UV0.x = uv[0];
-			Vertices[VertexIndex].UV0.y = uv[1];
-		}
-
-		if (UVAccessorsData[1]) {
-			float uv[2];
-			cgltf_accessor_read_float(UVAccessorsData[1], VertexIndex, uv, 2);
-			Vertices[VertexIndex].UV1.x = uv[0];
-			Vertices[VertexIndex].UV1.y = uv[1];
-		}
-	}
-
-	size_t IndexCount = IndicesAccessor ? IndicesAccessor->count : 0;
-	void *Indices = NULL;
-	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R16_UINT;
-	UINT IndexBufferSize = IndexCount * sizeof(UINT16);
-	UINT IndexStride = sizeof(uint16_t);
-
-	if (IndexCount > 0) {
-		if (VertexCount > UINT16_MAX) {
-			IndexStride = sizeof(uint32_t);
-			IndexFormat = DXGI_FORMAT_R32_UINT;
-			IndexBufferSize = IndexCount * sizeof(UINT32);
-		}
-
-		Indices = M_ArenaAlloc(Arena, IndexStride * IndexCount);
-
-		for (size_t i = 0; i < IndexCount; i += 3) {
-			uint32_t i0, i1, i2;
-			cgltf_accessor_read_uint(IndicesAccessor, i, &i0, 1);
-			cgltf_accessor_read_uint(IndicesAccessor, i + 1, &i1, 1);
-			cgltf_accessor_read_uint(IndicesAccessor, i + 2, &i2, 1);
-
-			/* Corrections for left-hand system */
-			if (IndexStride == sizeof(uint16_t)) {
-				((uint16_t *)Indices)[i] = (uint16_t)i0;
-				((uint16_t *)Indices)[i + 1] = (uint16_t)i2;
-				((uint16_t *)Indices)[i + 2] = (uint16_t)i1;
-			} else {
-				((uint32_t *)Indices)[i] = i0;
-				((uint32_t *)Indices)[i + 1] = i2;
-				((uint32_t *)Indices)[i + 2] = i1;
-			}
-		}
-	}
-
-	memcpy(Renderer->UploadBufferCpuAddress + Renderer->CurrentUploadBufferOffset, Vertices, VertexBufferSize);
-	D3D12_VERTEX_BUFFER_VIEW VertexBufferView = {
-	  .BufferLocation = M_GpuAddress(Renderer->VertexBufferDefault.Get(), Renderer->CurrentVertexBufferOffset),
-	  .SizeInBytes = VertexBufferSize,
-	  .StrideInBytes = sizeof(Sendai::Vertex),
-	};
-	Renderer->CommandList->CopyBufferRegion(Renderer->VertexBufferDefault.Get(), Renderer->CurrentVertexBufferOffset,
-											Renderer->UploadBuffer.Get(), Renderer->CurrentUploadBufferOffset, VertexBufferSize);
-	Renderer->CurrentVertexBufferOffset += VertexBufferSize;
-	Renderer->CurrentUploadBufferOffset += VertexBufferSize;
-
-	/* Ensure alignment for both 2 and 4 bytes indices */
-	Renderer->CurrentUploadBufferOffset = ROUND_UP_POWER_OF_2(Renderer->CurrentUploadBufferOffset, 4);
-	Renderer->CurrentIndexBufferOffset = ROUND_UP_POWER_OF_2(Renderer->CurrentIndexBufferOffset, 4);
-	memcpy(Renderer->UploadBufferCpuAddress + Renderer->CurrentUploadBufferOffset, Indices, IndexBufferSize);
-	D3D12_INDEX_BUFFER_VIEW IndexBufferView = {
-	  .BufferLocation = M_GpuAddress(Renderer->IndexBufferDefault.Get(), Renderer->CurrentIndexBufferOffset),
-	  .SizeInBytes = IndexBufferSize,
-	  .Format = IndexFormat,
-	};
-	Renderer->CommandList->CopyBufferRegion(Renderer->IndexBufferDefault.Get(), Renderer->CurrentIndexBufferOffset, Renderer->UploadBuffer.Get(),
-											Renderer->CurrentUploadBufferOffset, IndexBufferSize);
-	Renderer->CurrentIndexBufferOffset += IndexBufferSize;
-	Renderer->CurrentUploadBufferOffset += IndexBufferSize;
-
-	Primitive->VertexBufferView = VertexBufferView;
-	Primitive->IndexBufferView = IndexBufferView;
-	Primitive->IndexCount = IndexCount;
+        if (AttributeData->type == cgltf_attribute_type_texcoord)
+        {
+            if (AttributeData->index > 1)
+            {
+                continue;
+            }
+            UVAccessorsData[AttributeData->index] = AttributeData->vertex_data;
+        }
+        else
+        {
+            AccessorsData[AttributeData->type] = AttributeData->vertex_data;
+        }
+    }
 }
 
-void
-PreloadImages(Sendai::Model *Model, cgltf_data *Data, std::wstring &Path, M_Arena *UploadArena)
+VOID LoadVerticesAndIndicesIntoBuffers(Sendai::Renderer *Renderer, Sendai::Primitive *Primitive,
+                                       cgltf_accessor *PositionAccessor, cgltf_accessor *NormalAccessor,
+                                       cgltf_accessor *TangentAccessor, cgltf_accessor *IndicesAccessor,
+                                       cgltf_accessor *UVAccessorsData[2], M_Arena *Arena)
 {
-	// Model->Images = (Sendai::Texture *)M_ArenaAlloc(UploadArena, Data->images_count * sizeof(Sendai::Texture));
-	// Model->ImagesCount = Data->images_count;
-	//
-	// for (int i = 0; i < Data->images_count; ++i) {
-	//	cgltf_image *BaseImage = &Data->images[i];
-	//	size_t Size = 0;
-	//	int Channels = 0;
-	//	Win32RemoveAllAfterLastSlash(Path);
-	//
-	//	if (ExtractImageData(Path, BaseImage, UploadArena, &Model->Images[i])) {
-	//		Model->Images[i].Name = CreateTextureName(BaseImage, Path, i);
-	//	}
-	// }
+    if (!PositionAccessor)
+    {
+        Sendai::LOG.Append(L"Mesh has no POSITION attribute\n");
+        return;
+    }
+
+    UINT VertexCount = PositionAccessor->count;
+    UINT VertexBufferSize = sizeof(Sendai::Vertex) * VertexCount;
+    Sendai::Vertex *Vertices = (Sendai::Vertex *)M_ArenaAlloc(Arena, VertexBufferSize);
+    XMFLOAT4 *Tangents = NULL;
+    if (PositionAccessor && NormalAccessor && UVAccessorsData[0] && IndicesAccessor)
+    {
+        Tangents = ComputeTangents(PositionAccessor, NormalAccessor, UVAccessorsData[0], IndicesAccessor, Arena);
+    }
+
+    for (UINT VertexIndex = 0; VertexIndex < VertexCount; VertexIndex++)
+    {
+        FLOAT Position[3];
+        cgltf_accessor_read_float(PositionAccessor, VertexIndex, Position, 3);
+        Vertices[VertexIndex].Position = {Position[0], Position[1], -Position[2]};
+
+        if (NormalAccessor)
+        {
+            FLOAT Normal[3];
+            cgltf_accessor_read_float(NormalAccessor, VertexIndex, Normal, 3);
+            Vertices[VertexIndex].Normal.x = Normal[0];
+            Vertices[VertexIndex].Normal.y = Normal[1];
+            Vertices[VertexIndex].Normal.z = -Normal[2];
+        }
+
+        if (TangentAccessor)
+        {
+            FLOAT Tangent[4];
+            cgltf_accessor_read_float(TangentAccessor, VertexIndex, Tangent, 4);
+            Vertices[VertexIndex].Tangent.x = Tangent[0];
+            Vertices[VertexIndex].Tangent.y = Tangent[1];
+            Vertices[VertexIndex].Tangent.z = -Tangent[2];
+            Vertices[VertexIndex].Tangent.w = -Tangent[3];
+        }
+        else if (Tangents)
+        {
+            Vertices[VertexIndex].Tangent.x = Tangents[VertexIndex].x;
+            Vertices[VertexIndex].Tangent.y = Tangents[VertexIndex].y;
+            Vertices[VertexIndex].Tangent.z = Tangents[VertexIndex].z;
+            Vertices[VertexIndex].Tangent.w = Tangents[VertexIndex].w;
+        }
+
+        if (UVAccessorsData[0])
+        {
+            float uv[2];
+            cgltf_accessor_read_float(UVAccessorsData[0], VertexIndex, uv, 2);
+            Vertices[VertexIndex].UV0.x = uv[0];
+            Vertices[VertexIndex].UV0.y = uv[1];
+        }
+
+        if (UVAccessorsData[1])
+        {
+            float uv[2];
+            cgltf_accessor_read_float(UVAccessorsData[1], VertexIndex, uv, 2);
+            Vertices[VertexIndex].UV1.x = uv[0];
+            Vertices[VertexIndex].UV1.y = uv[1];
+        }
+    }
+
+    size_t IndexCount = IndicesAccessor ? IndicesAccessor->count : 0;
+    VOID *Indices = NULL;
+    DXGI_FORMAT IndexFormat = DXGI_FORMAT_R16_UINT;
+    UINT IndexBufferSize = IndexCount * sizeof(UINT16);
+    UINT IndexStride = sizeof(uint16_t);
+
+    if (IndexCount > 0)
+    {
+        if (VertexCount > UINT16_MAX)
+        {
+            IndexStride = sizeof(uint32_t);
+            IndexFormat = DXGI_FORMAT_R32_UINT;
+            IndexBufferSize = IndexCount * sizeof(UINT32);
+        }
+
+        Indices = M_ArenaAlloc(Arena, IndexStride * IndexCount);
+
+        for (size_t i = 0; i < IndexCount; i += 3)
+        {
+            uint32_t i0, i1, i2;
+            cgltf_accessor_read_uint(IndicesAccessor, i, &i0, 1);
+            cgltf_accessor_read_uint(IndicesAccessor, i + 1, &i1, 1);
+            cgltf_accessor_read_uint(IndicesAccessor, i + 2, &i2, 1);
+
+            /* Corrections for left-hand system */
+            if (IndexStride == sizeof(uint16_t))
+            {
+                ((uint16_t *)Indices)[i] = (uint16_t)i0;
+                ((uint16_t *)Indices)[i + 1] = (uint16_t)i2;
+                ((uint16_t *)Indices)[i + 2] = (uint16_t)i1;
+            }
+            else
+            {
+                ((uint32_t *)Indices)[i] = i0;
+                ((uint32_t *)Indices)[i + 1] = i2;
+                ((uint32_t *)Indices)[i + 2] = i1;
+            }
+        }
+    }
+
+    memcpy(Renderer->UploadBufferCpuAddress + Renderer->CurrentUploadBufferOffset, Vertices, VertexBufferSize);
+    D3D12_VERTEX_BUFFER_VIEW VertexBufferView = {
+        .BufferLocation = M_GpuAddress(Renderer->VertexBufferDefault.Get(), Renderer->CurrentVertexBufferOffset),
+        .SizeInBytes = VertexBufferSize,
+        .StrideInBytes = sizeof(Sendai::Vertex),
+    };
+    Renderer->CommandList->CopyBufferRegion(Renderer->VertexBufferDefault.Get(), Renderer->CurrentVertexBufferOffset,
+                                            Renderer->UploadBuffer.Get(), Renderer->CurrentUploadBufferOffset,
+                                            VertexBufferSize);
+    Renderer->CurrentVertexBufferOffset += VertexBufferSize;
+    Renderer->CurrentUploadBufferOffset += VertexBufferSize;
+
+    /* Ensure alignment for both 2 and 4 bytes indices */
+    Renderer->CurrentUploadBufferOffset = ROUND_UP_POWER_OF_2(Renderer->CurrentUploadBufferOffset, 4);
+    Renderer->CurrentIndexBufferOffset = ROUND_UP_POWER_OF_2(Renderer->CurrentIndexBufferOffset, 4);
+    memcpy(Renderer->UploadBufferCpuAddress + Renderer->CurrentUploadBufferOffset, Indices, IndexBufferSize);
+    D3D12_INDEX_BUFFER_VIEW IndexBufferView = {
+        .BufferLocation = M_GpuAddress(Renderer->IndexBufferDefault.Get(), Renderer->CurrentIndexBufferOffset),
+        .SizeInBytes = IndexBufferSize,
+        .Format = IndexFormat,
+    };
+    Renderer->CommandList->CopyBufferRegion(Renderer->IndexBufferDefault.Get(), Renderer->CurrentIndexBufferOffset,
+                                            Renderer->UploadBuffer.Get(), Renderer->CurrentUploadBufferOffset,
+                                            IndexBufferSize);
+    Renderer->CurrentIndexBufferOffset += IndexBufferSize;
+    Renderer->CurrentUploadBufferOffset += IndexBufferSize;
+
+    Primitive->VertexBufferView = VertexBufferView;
+    Primitive->IndexBufferView = IndexBufferView;
+    Primitive->IndexCount = IndexCount;
 }
 
-BOOL
-ExtractImageData(_In_z_ std::wstring &BasePath, _In_ cgltf_image *Img, _In_ M_Arena *UploadArena, _Out_ Sendai::Texture *Texture)
+VOID PreloadImages(Sendai::Model *Model, cgltf_data *Data, std::wstring &Path, M_Arena *UploadArena)
 {
-	if (Texture == NULL) {
-		return FALSE;
-	}
-
-	unsigned char *StbiData = NULL;
-
-	if (Img->uri) {
-		if (IsDataEmbedded(Img)) {
-			char *FirstCommaPtr = strchr(Img->uri, ',');
-			if (FirstCommaPtr == NULL) {
-				return FALSE;
-			}
-			char *EncodedB64 = FirstCommaPtr + 1;
-			size_t EncLen = strlen(EncodedB64);
-			size_t DecodedMaxCap = (EncLen / 4) * 3 + 4;
-			stbi_uc *Decoded = (stbi_uc *)M_ArenaAlloc(UploadArena, DecodedMaxCap);
-			if (Decoded == NULL) {
-				return FALSE;
-			}
-			b64_decode(EncodedB64, (char *)(Decoded));
-			StbiData = stbi_load_from_memory(Decoded, (int)DecodedMaxCap, &Texture->Width, &Texture->Height, &Texture->Channels, 4);
-			if (StbiData == NULL) {
-				return FALSE;
-			}
-		} else {
-			auto FullPath = Win32AppendFileNameToPath(BasePath, Img->uri);
-			StbiData = stbi_load(FullPath.c_str(), &Texture->Width, &Texture->Height, &Texture->Channels, 4);
-			if (StbiData == NULL) {
-				return FALSE;
-			}
-		}
-	} else if (Img->buffer_view) {
-		cgltf_buffer_view *BufferView = Img->buffer_view;
-		cgltf_buffer *Buffer = BufferView->buffer;
-		const UINT8 *Data = (const UINT8 *)Buffer->vertex_data + BufferView->offset;
-		StbiData = stbi_load_from_memory(Data, (int)BufferView->size, &Texture->Width, &Texture->Height, &Texture->Channels, 4);
-		if (StbiData == NULL) {
-			return FALSE;
-		}
-	}
-
-	if (StbiData == NULL) {
-		return FALSE;
-	}
-
-	Texture->Size = (size_t)(Texture->Width) * (size_t)(Texture->Height) * 4;
-	Texture->MipLevels = R_CalculateMipLevels(Texture->Width, Texture->Height);
-	Texture->MipPixels[0] = (UINT8 *)M_ArenaAlloc(UploadArena, Texture->Size);
-	memcpy((void *)Texture->MipPixels[0], StbiData, Texture->Size);
-
-	stbi_image_free(StbiData);
-
-	return TRUE;
+    // Model->Images = (Sendai::Texture *)M_ArenaAlloc(UploadArena, Data->images_count * sizeof(Sendai::Texture));
+    // Model->ImagesCount = Data->images_count;
+    //
+    // for (int i = 0; i < Data->images_count; ++i) {
+    //	cgltf_image *BaseImage = &Data->images[i];
+    //	size_t Size = 0;
+    //	int Channels = 0;
+    //	Win32RemoveAllAfterLastSlash(Path);
+    //
+    //	if (ExtractImageData(Path, BaseImage, UploadArena, &Model->Images[i])) {
+    //		Model->Images[i].Name = CreateTextureName(BaseImage, Path, i);
+    //	}
+    // }
 }
 
-cgltf_result
-LoadGLTFBuffer(_In_z_ std::wstring &FullPath, _In_ M_Arena *Arena, _Out_ size_t *Size, _Outptr_result_bytebuffer_(*Size) void **Data)
+BOOL ExtractImageData(_In_z_ std::wstring &BasePath, _In_ cgltf_image *Img, _In_ M_Arena *UploadArena,
+                      _Out_ Sendai::Texture *Texture)
 {
-	std::wstring FullPathBuffer;
-	Win32RemoveAllAfterLastSlash(FullPathBuffer);
+    if (Texture == NULL)
+    {
+        return FALSE;
+    }
 
-	FILE *file = _wfopen(FullPathBuffer.c_str(), L"rb");
-	if (!file) {
-		return cgltf_result_file_not_found;
-	}
+    unsigned char *StbiData = NULL;
 
-	fseek(file, 0, SEEK_END);
-	*Size = ftell(file);
-	fseek(file, 0, SEEK_SET);
+    if (Img->uri)
+    {
+        if (IsDataEmbedded(Img))
+        {
+            char *FirstCommaPtr = strchr(Img->uri, ',');
+            if (FirstCommaPtr == NULL)
+            {
+                return FALSE;
+            }
+            char *EncodedB64 = FirstCommaPtr + 1;
+            size_t EncLen = strlen(EncodedB64);
+            size_t DecodedMaxCap = (EncLen / 4) * 3 + 4;
+            stbi_uc *Decoded = (stbi_uc *)M_ArenaAlloc(UploadArena, DecodedMaxCap);
+            if (Decoded == NULL)
+            {
+                return FALSE;
+            }
+            b64_decode(EncodedB64, (char *)(Decoded));
+            StbiData = stbi_load_from_memory(Decoded, (int)DecodedMaxCap, &Texture->Width, &Texture->Height,
+                                             &Texture->Channels, 4);
+            if (StbiData == NULL)
+            {
+                return FALSE;
+            }
+        }
+        else
+        {
+            auto FullPath = Win32AppendFileNameToPath(BasePath, Img->uri);
+            StbiData = stbi_load(FullPath.c_str(), &Texture->Width, &Texture->Height, &Texture->Channels, 4);
+            if (StbiData == NULL)
+            {
+                return FALSE;
+            }
+        }
+    }
+    else if (Img->buffer_view)
+    {
+        cgltf_buffer_view *BufferView = Img->buffer_view;
+        cgltf_buffer *Buffer = BufferView->buffer;
+        const UINT8 *Data = (const UINT8 *)Buffer->vertex_data + BufferView->offset;
+        StbiData = stbi_load_from_memory(Data, (int)BufferView->size, &Texture->Width, &Texture->Height,
+                                         &Texture->Channels, 4);
+        if (StbiData == NULL)
+        {
+            return FALSE;
+        }
+    }
 
-	*Data = M_ArenaAlloc(Arena, *Size);
-	if (!*Data) {
-		fclose(file);
-		return cgltf_result_out_of_memory;
-	}
-	fread(*Data, 1, *Size, file);
-	fclose(file);
+    if (StbiData == NULL)
+    {
+        return FALSE;
+    }
 
-	return cgltf_result_success;
+    Texture->Size = (size_t)(Texture->Width) * (size_t)(Texture->Height) * 4;
+    Texture->MipLevels = Sendai::Textures::CalculateMipLevels(Texture->Width, Texture->Height);
+    Texture->MipPixels[0] = (UINT8 *)M_ArenaAlloc(UploadArena, Texture->Size);
+    std::memcpy((VOID *)Texture->MipPixels[0], StbiData, Texture->Size);
+
+    stbi_image_free(StbiData);
+
+    return TRUE;
 }
 
-cgltf_result
-LoadGLTFBuffers(_In_ const cgltf_options *Options, _In_ M_Arena *Arena, _Inout_ cgltf_data *Data, _In_z_ std::wstring &Path)
+cgltf_result LoadGLTFBuffer(_In_z_ std::wstring &FullPath, _In_ M_Arena *Arena, _Out_ size_t *Size,
+                            _Outptr_result_bytebuffer_(*Size) VOID **Data)
 {
-	if (Options == NULL) {
-		return cgltf_result_invalid_options;
-	}
+    std::wstring FullPathBuffer;
+    Win32RemoveAllAfterLastSlash(FullPathBuffer);
 
-	if (Data->buffers_count && Data->buffers[0].vertex_data == NULL && Data->buffers[0].uri == NULL && Data->bin) {
-		if (Data->bin_size < Data->buffers[0].size) {
-			return cgltf_result_data_too_short;
-		}
-		Data->buffers[0].vertex_data = (void *)Data->bin;
-		Data->buffers[0].data_free_method = cgltf_data_free_method_none;
-	}
+    FILE *file = _wfopen(FullPathBuffer.c_str(), L"rb");
+    if (!file)
+    {
+        return cgltf_result_file_not_found;
+    }
 
-	for (cgltf_size i = 0; i < Data->buffers_count; ++i) {
-		if (Data->buffers[i].vertex_data) {
-			continue;
-		}
+    fseek(file, 0, SEEK_END);
+    *Size = ftell(file);
+    fseek(file, 0, SEEK_SET);
 
-		char *Uri = Data->buffers[i].uri;
+    *Data = M_ArenaAlloc(Arena, *Size);
+    if (!*Data)
+    {
+        fclose(file);
+        return cgltf_result_out_of_memory;
+    }
+    fread(*Data, 1, *Size, file);
+    fclose(file);
 
-		if (Uri == NULL) {
-			continue;
-		}
-
-		if (strncmp(Uri, "data:", 5) == 0) {
-			char *Comma = strrchr(Uri, ',');
-
-			if (Comma && Comma - Uri >= 7 && strncmp(Comma - 7, ";base64", 7) == 0) {
-				cgltf_result Result = cgltf_load_buffer_base64(Options, Data->buffers[i].size, Comma + 1, &Data->buffers[i].vertex_data);
-				Data->buffers[i].data_free_method = cgltf_data_free_method_memory_free;
-
-				if (Result != cgltf_result_success) {
-					return Result;
-				}
-			} else {
-				return cgltf_result_unknown_format;
-			}
-		} else if (strstr(Uri, "://") == NULL && !Path.empty()) {
-			cgltf_result Result = LoadGLTFBuffer(Path, Arena, &Data->buffers[i].size, &Data->buffers[i].vertex_data);
-			Data->buffers[i].data_free_method = cgltf_data_free_method_file_release;
-
-			if (Result != cgltf_result_success) {
-				return Result;
-			}
-		} else {
-			return cgltf_result_unknown_format;
-		}
-	}
-
-	return cgltf_result_success;
+    return cgltf_result_success;
 }
 
-LONG
-LoadGLTFFile(_In_z_ std::wstring &Path, M_Arena *Arena, _Outptr_ void **Data)
+cgltf_result LoadGLTFBuffers(_In_ const cgltf_options *Options, _In_ M_Arena *Arena, _Inout_ cgltf_data *Data,
+                             _In_z_ std::wstring &Path)
 {
-	FILE *FileHandle = _wfopen(Path.c_str(), L"rb");
-	if (!FileHandle) {
-		return 0;
-	}
-	fseek(FileHandle, 0, SEEK_END);
-	long Size = ftell(FileHandle);
-	fseek(FileHandle, 0, SEEK_SET);
+    if (Options == NULL)
+    {
+        return cgltf_result_invalid_options;
+    }
 
-	if (Size <= 0) {
-		fclose(FileHandle);
-		return Size;
-	}
+    if (Data->buffers_count && Data->buffers[0].vertex_data == NULL && Data->buffers[0].uri == NULL && Data->bin)
+    {
+        if (Data->bin_size < Data->buffers[0].size)
+        {
+            return cgltf_result_data_too_short;
+        }
+        Data->buffers[0].vertex_data = (VOID *)Data->bin;
+        Data->buffers[0].data_free_method = cgltf_data_free_method_none;
+    }
 
-	*Data = M_ArenaAlloc(Arena, Size);
-	if (!*Data) {
-		fclose(FileHandle);
-		return 0;
-	}
+    for (cgltf_size i = 0; i < Data->buffers_count; ++i)
+    {
+        if (Data->buffers[i].vertex_data)
+        {
+            continue;
+        }
 
-	size_t ReadBytes = fread(*Data, 1, Size, FileHandle);
-	fclose(FileHandle);
+        char *Uri = Data->buffers[i].uri;
 
-	if (ReadBytes != (size_t)Size) {
-		return 0;
-	}
+        if (Uri == NULL)
+        {
+            continue;
+        }
 
-	return Size;
+        if (strncmp(Uri, "data:", 5) == 0)
+        {
+            char *Comma = strrchr(Uri, ',');
+
+            if (Comma && Comma - Uri >= 7 && strncmp(Comma - 7, ";base64", 7) == 0)
+            {
+                cgltf_result Result =
+                    cgltf_load_buffer_base64(Options, Data->buffers[i].size, Comma + 1, &Data->buffers[i].vertex_data);
+                Data->buffers[i].data_free_method = cgltf_data_free_method_memory_free;
+
+                if (Result != cgltf_result_success)
+                {
+                    return Result;
+                }
+            }
+            else
+            {
+                return cgltf_result_unknown_format;
+            }
+        }
+        else if (strstr(Uri, "://") == NULL && !Path.empty())
+        {
+            cgltf_result Result = LoadGLTFBuffer(Path, Arena, &Data->buffers[i].size, &Data->buffers[i].vertex_data);
+            Data->buffers[i].data_free_method = cgltf_data_free_method_file_release;
+
+            if (Result != cgltf_result_success)
+            {
+                return Result;
+            }
+        }
+        else
+        {
+            return cgltf_result_unknown_format;
+        }
+    }
+
+    return cgltf_result_success;
 }
 
-BOOL
-IsDataEmbedded(const cgltf_image *const BaseImage)
+LONG LoadGLTFFile(_In_z_ std::wstring &Path, M_Arena *Arena, _Outptr_ VOID **Data)
 {
-	return BaseImage->uri && strncmp(BaseImage->uri, "data:", 5) == 0;
+    FILE *FileHandle = _wfopen(Path.c_str(), L"rb");
+    if (!FileHandle)
+    {
+        return 0;
+    }
+    fseek(FileHandle, 0, SEEK_END);
+    long Size = ftell(FileHandle);
+    fseek(FileHandle, 0, SEEK_SET);
+
+    if (Size <= 0)
+    {
+        fclose(FileHandle);
+        return Size;
+    }
+
+    *Data = M_ArenaAlloc(Arena, Size);
+    if (!*Data)
+    {
+        fclose(FileHandle);
+        return 0;
+    }
+
+    size_t ReadBytes = fread(*Data, 1, Size, FileHandle);
+    fclose(FileHandle);
+
+    if (ReadBytes != (size_t)Size)
+    {
+        return 0;
+    }
+
+    return Size;
 }
 
-std::wstring
-UTF8ToWSTR(const char *UTF8)
+BOOL IsDataEmbedded(const cgltf_image *const BaseImage)
 {
-	if (!UTF8 || *UTF8 == '\0') {
-		return L"";
-	}
-	int size_needed = MultiByteToWideChar(CP_UTF8, 0, UTF8, -1, NULL, 0);
-	std::wstring wstrTo(size_needed, 0);
-	MultiByteToWideChar(CP_UTF8, 0, UTF8, -1, &wstrTo[0], size_needed);
-	wstrTo.resize(size_needed - 1);
-	return wstrTo;
+    return BaseImage->uri && strncmp(BaseImage->uri, "data:", 5) == 0;
 }
 
-std::wstring
-CreateTextureName(cgltf_image *BaseImage, const std::wstring &Path, int i)
+std::wstring UTF8ToWSTR(const char *UTF8)
 {
-	if (BaseImage->uri && !IsDataEmbedded(BaseImage)) {
-		std::wstring uriW = UTF8ToWSTR(BaseImage->uri);
-		return std::format(L"{}_{}_{}", Path, i, uriW);
-	}
-
-	return std::format(L"{}_Internal_{}", Path, i);
+    if (!UTF8 || *UTF8 == '\0')
+    {
+        return L"";
+    }
+    int size_needed = MultiByteToWideChar(CP_UTF8, 0, UTF8, -1, NULL, 0);
+    std::wstring wstrTo(size_needed, 0);
+    MultiByteToWideChar(CP_UTF8, 0, UTF8, -1, &wstrTo[0], size_needed);
+    wstrTo.resize(size_needed - 1);
+    return wstrTo;
 }
 
-void
-LoadPBRData(
-	Sendai::Renderer *Renderer, Sendai::Texture *const Images, cgltf_image *ImagesData, cgltf_material *Material, Sendai::PBRConstantBuffer *CB)
+std::wstring CreateTextureName(cgltf_image *BaseImage, const std::wstring &Path, int i)
 {
-	CB->AlbedoTextureIndex = R_GetTextureIndex(Renderer, NULL);
-	CB->NormalTextureIndex = R_GetTextureIndex(Renderer, NULL);
-	CB->MetallicTextureIndex = R_GetTextureIndex(Renderer, NULL);
-	CB->OcclusionTextureIndex = R_GetTextureIndex(Renderer, NULL);
-	CB->EmissiveTextureIndex = R_GetTextureIndex(Renderer, NULL);
+    if (BaseImage->uri && !IsDataEmbedded(BaseImage))
+    {
+        std::wstring uriW = UTF8ToWSTR(BaseImage->uri);
+        return std::format(L"{}_{}_{}", Path, i, uriW);
+    }
 
-	if (Material) {
-		if (Material->has_pbr_metallic_roughness) {
-			cgltf_pbr_metallic_roughness *MetallicRoughnessData = &Material->pbr_metallic_roughness;
-			memcpy(&CB->BaseColorFactor, MetallicRoughnessData->base_color_factor, sizeof(float) * 4);
-			CB->MetallicFactor = MetallicRoughnessData->metallic_factor;
-			CB->RoughnessFactor = MetallicRoughnessData->roughness_factor;
-
-			if (MetallicRoughnessData->base_color_texture.texture) {
-				UINT AlbedoIndex = MetallicRoughnessData->base_color_texture.texture->image - ImagesData;
-				CB->AlbedoTextureIndex = R_GetTextureIndex(Renderer, &Images[AlbedoIndex]);
-
-				if (MetallicRoughnessData->base_color_texture.has_transform) {
-					cgltf_texture_transform *Transform = &MetallicRoughnessData->base_color_texture.transform;
-					INT uvIndex = MetallicRoughnessData->base_color_texture.texcoord;
-					CB->UVScale.x = Transform->scale[0];
-					CB->UVScale.y = Transform->scale[1];
-					CB->UVOffset.x = Transform->offset[0];
-					CB->UVOffset.y = Transform->offset[1];
-					CB->UVRotation = Transform->rotation;
-				} else {
-					CB->UVScale.x = 1.0f;
-					CB->UVScale.y = 1.0f;
-					CB->UVOffset.x = 0.0f;
-					CB->UVOffset.y = 0.0f;
-					CB->UVRotation = 0.0f;
-				}
-			}
-
-			if (MetallicRoughnessData->metallic_roughness_texture.texture) {
-				UINT MetallicIndex = MetallicRoughnessData->metallic_roughness_texture.texture->image - ImagesData;
-				CB->MetallicTextureIndex = R_GetTextureIndex(Renderer, &Images[MetallicIndex]);
-			}
-		}
-		cgltf_texture_view *NormalTextureView = &Material->normal_texture;
-		if (NormalTextureView->texture) {
-			UINT NormalIndex = NormalTextureView->texture->image - ImagesData;
-			CB->NormalTextureIndex = R_GetTextureIndex(Renderer, &Images[NormalIndex]);
-		}
-
-		if (Material->occlusion_texture.texture) {
-			UINT OcclusionIndex = Material->occlusion_texture.texture->image - ImagesData;
-			CB->OcclusionTextureIndex = R_GetTextureIndex(Renderer, &Images[OcclusionIndex]);
-		}
-
-		memcpy(&CB->EmissiveFactor, Material->emissive_factor, sizeof(cgltf_float) * 3);
-		if (Material->emissive_texture.texture) {
-			UINT EmissiveIndex = Material->emissive_texture.texture->image - ImagesData;
-			CB->EmissiveTextureIndex = R_GetTextureIndex(Renderer, &Images[EmissiveIndex]);
-		}
-	}
+    return std::format(L"{}_Internal_{}", Path, i);
 }
 
-// Based on https://github.com/salvatorespoto/gLTFViewer/blob/master/DX12Engine/Source/Utils/Cpp/GLTFSceneLoader.cpp#L508
-XMFLOAT4 *
-ComputeTangents(cgltf_accessor *PositionAccessor,
-				cgltf_accessor *NormalAccessor,
-				cgltf_accessor *UVAccessor,
-				cgltf_accessor *IndicesAccessor,
-				M_Arena *Arena)
+VOID LoadPBRData(Sendai::Renderer &Renderer, Sendai::Texture *const Images, cgltf_image *ImagesData,
+                 cgltf_material *Material, Sendai::PBRConstantBuffer *CB)
 {
-	size_t VertexCount = PositionAccessor->count;
-	XMFLOAT3 *Tan1 = (XMFLOAT3 *)M_ArenaAlloc(Arena, VertexCount * sizeof(XMFLOAT3));
-	XMFLOAT3 *Tan2 = (XMFLOAT3 *)M_ArenaAlloc(Arena, VertexCount * sizeof(XMFLOAT3));
-	XMFLOAT4 *FinalTangents = (XMFLOAT4 *)M_ArenaAlloc(Arena, VertexCount * sizeof(XMFLOAT4));
+    CB->AlbedoTextureIndex = Renderer.Textures->GetTextureIndex(Sendai::WhiteTexture);
+    CB->NormalTextureIndex = Renderer.Textures->GetTextureIndex(Sendai::WhiteTexture);
+    CB->MetallicTextureIndex = Renderer.Textures->GetTextureIndex(Sendai::WhiteTexture);
+    CB->OcclusionTextureIndex = Renderer.Textures->GetTextureIndex(Sendai::WhiteTexture);
+    CB->EmissiveTextureIndex = Renderer.Textures->GetTextureIndex(Sendai::WhiteTexture);
 
-	for (size_t i = 0; i < IndicesAccessor->count; i += 3) {
-		uint32_t i1 = (uint32_t)cgltf_accessor_read_index(IndicesAccessor, i);
-		uint32_t i2 = (uint32_t)cgltf_accessor_read_index(IndicesAccessor, i + 1);
-		uint32_t i3 = (uint32_t)cgltf_accessor_read_index(IndicesAccessor, i + 2);
+    if (Material)
+    {
+        if (Material->has_pbr_metallic_roughness)
+        {
+            cgltf_pbr_metallic_roughness *MetallicRoughnessData = &Material->pbr_metallic_roughness;
+            memcpy(&CB->BaseColorFactor, MetallicRoughnessData->base_color_factor, sizeof(float) * 4);
+            CB->MetallicFactor = MetallicRoughnessData->metallic_factor;
+            CB->RoughnessFactor = MetallicRoughnessData->roughness_factor;
 
-		XMFLOAT3 v1, v2, v3;
-		XMFLOAT2 w1, w2, w3;
+            if (MetallicRoughnessData->base_color_texture.texture)
+            {
+                UINT AlbedoIndex = MetallicRoughnessData->base_color_texture.texture->image - ImagesData;
+                CB->AlbedoTextureIndex = Renderer.Textures->GetTextureIndex(Images[AlbedoIndex]);
 
-		cgltf_accessor_read_float(PositionAccessor, i1, &v1.x, 3);
-		cgltf_accessor_read_float(PositionAccessor, i2, &v2.x, 3);
-		cgltf_accessor_read_float(PositionAccessor, i3, &v3.x, 3);
+                if (MetallicRoughnessData->base_color_texture.has_transform)
+                {
+                    cgltf_texture_transform *Transform = &MetallicRoughnessData->base_color_texture.transform;
+                    INT uvIndex = MetallicRoughnessData->base_color_texture.texcoord;
+                    CB->UVScale.x = Transform->scale[0];
+                    CB->UVScale.y = Transform->scale[1];
+                    CB->UVOffset.x = Transform->offset[0];
+                    CB->UVOffset.y = Transform->offset[1];
+                    CB->UVRotation = Transform->rotation;
+                }
+                else
+                {
+                    CB->UVScale.x = 1.0f;
+                    CB->UVScale.y = 1.0f;
+                    CB->UVOffset.x = 0.0f;
+                    CB->UVOffset.y = 0.0f;
+                    CB->UVRotation = 0.0f;
+                }
+            }
 
-		cgltf_accessor_read_float(UVAccessor, i1, &w1.x, 2);
-		cgltf_accessor_read_float(UVAccessor, i2, &w2.x, 2);
-		cgltf_accessor_read_float(UVAccessor, i3, &w3.x, 2);
+            if (MetallicRoughnessData->metallic_roughness_texture.texture)
+            {
+                UINT MetallicIndex = MetallicRoughnessData->metallic_roughness_texture.texture->image - ImagesData;
+                CB->MetallicTextureIndex = Renderer.Textures->GetTextureIndex(Images[MetallicIndex]);
+            }
+        }
+        cgltf_texture_view *NormalTextureView = &Material->normal_texture;
+        if (NormalTextureView->texture)
+        {
+            UINT NormalIndex = NormalTextureView->texture->image - ImagesData;
+            CB->NormalTextureIndex = Renderer.Textures->GetTextureIndex(Images[NormalIndex]);
+        }
 
-		float x1 = v2.x - v1.x;
-		float x2 = v3.x - v1.x;
-		float y1 = v2.y - v1.y;
-		float y2 = v3.y - v1.y;
-		float z1 = v2.z - v1.z;
-		float z2 = v3.z - v1.z;
+        if (Material->occlusion_texture.texture)
+        {
+            UINT OcclusionIndex = Material->occlusion_texture.texture->image - ImagesData;
+            CB->OcclusionTextureIndex = Renderer.Textures->GetTextureIndex(Images[OcclusionIndex]);
+        }
 
-		float s1 = w2.x - w1.x;
-		float s2 = w3.x - w1.x;
-		float t1 = w2.y - w1.y;
-		float t2 = w3.y - w1.y;
+        memcpy(&CB->EmissiveFactor, Material->emissive_factor, sizeof(cgltf_float) * 3);
+        if (Material->emissive_texture.texture)
+        {
+            UINT EmissiveIndex = Material->emissive_texture.texture->image - ImagesData;
+            CB->EmissiveTextureIndex = Renderer.Textures->GetTextureIndex(Images[EmissiveIndex]);
+        }
+    }
+}
 
-		float r = 1.0f / (s1 * t2 - s2 * t1);
+// Based on
+// https://github.com/salvatorespoto/gLTFViewer/blob/master/DX12Engine/Source/Utils/Cpp/GLTFSceneLoader.cpp#L508
+XMFLOAT4 *ComputeTangents(cgltf_accessor *PositionAccessor, cgltf_accessor *NormalAccessor, cgltf_accessor *UVAccessor,
+                          cgltf_accessor *IndicesAccessor, M_Arena *Arena)
+{
+    size_t VertexCount = PositionAccessor->count;
+    XMFLOAT3 *Tan1 = (XMFLOAT3 *)M_ArenaAlloc(Arena, VertexCount * sizeof(XMFLOAT3));
+    XMFLOAT3 *Tan2 = (XMFLOAT3 *)M_ArenaAlloc(Arena, VertexCount * sizeof(XMFLOAT3));
+    XMFLOAT4 *FinalTangents = (XMFLOAT4 *)M_ArenaAlloc(Arena, VertexCount * sizeof(XMFLOAT4));
 
-		XMFLOAT3 sdir = {(t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r};
-		XMFLOAT3 tdir = {(s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r};
+    for (size_t i = 0; i < IndicesAccessor->count; i += 3)
+    {
+        uint32_t i1 = (uint32_t)cgltf_accessor_read_index(IndicesAccessor, i);
+        uint32_t i2 = (uint32_t)cgltf_accessor_read_index(IndicesAccessor, i + 1);
+        uint32_t i3 = (uint32_t)cgltf_accessor_read_index(IndicesAccessor, i + 2);
 
-		Tan1[i1] = {Tan1[i1].x + sdir.x, Tan1[i1].y + sdir.y, Tan1[i1].z + sdir.z};
-		Tan1[i2] = {Tan1[i2].x + sdir.x, Tan1[i2].y + sdir.y, Tan1[i2].z + sdir.z};
-		Tan1[i3] = {Tan1[i3].x + sdir.x, Tan1[i3].y + sdir.y, Tan1[i3].z + sdir.z};
+        XMFLOAT3 v1, v2, v3;
+        XMFLOAT2 w1, w2, w3;
 
-		Tan2[i1] = {Tan2[i1].x + tdir.x, Tan2[i1].y + tdir.y, Tan2[i1].z + tdir.z};
-		Tan2[i2] = {Tan2[i2].x + tdir.x, Tan2[i2].y + tdir.y, Tan2[i2].z + tdir.z};
-		Tan2[i3] = {Tan2[i3].x + tdir.x, Tan2[i3].y + tdir.y, Tan2[i3].z + tdir.z};
-	}
+        cgltf_accessor_read_float(PositionAccessor, i1, &v1.x, 3);
+        cgltf_accessor_read_float(PositionAccessor, i2, &v2.x, 3);
+        cgltf_accessor_read_float(PositionAccessor, i3, &v3.x, 3);
 
-	for (size_t i = 0; i < VertexCount; i++) {
-		XMFLOAT3 N;
-		cgltf_accessor_read_float(NormalAccessor, i, &N.x, 3);
+        cgltf_accessor_read_float(UVAccessor, i1, &w1.x, 2);
+        cgltf_accessor_read_float(UVAccessor, i2, &w2.x, 2);
+        cgltf_accessor_read_float(UVAccessor, i3, &w3.x, 2);
 
-		XMVECTOR N_XMVECTOR = XMLoadFloat3(&N);
-		XMVECTOR Tan1_XMVECTOR = XMLoadFloat3(&Tan1[i]);
-		XMVECTOR Tan2_XMVECTOR = XMLoadFloat3(&Tan2[i]);
+        float x1 = v2.x - v1.x;
+        float x2 = v3.x - v1.x;
+        float y1 = v2.y - v1.y;
+        float y2 = v3.y - v1.y;
+        float z1 = v2.z - v1.z;
+        float z2 = v3.z - v1.z;
 
-		// Gram-Schmidt orthogonalize
-		XMVECTOR NdotTan1 = XM_VEC3_DOT(N_XMVECTOR, Tan1_XMVECTOR);
-		XMVECTOR NxNT = XM_VEC_MULT(N_XMVECTOR, NdotTan1);
-		XMVECTOR TminusNNT = XM_VEC_SUBTRACT(Tan1_XMVECTOR, NxNT);
-		XMVECTOR TangetVector = XM_VEC3_NORM(TminusNNT);
+        float s1 = w2.x - w1.x;
+        float s2 = w3.x - w1.x;
+        float t1 = w2.y - w1.y;
+        float t2 = w3.y - w1.y;
 
-		// Calculate handedness (w)
-		XMVECTOR crossNT = XM_VEC3_CROSS(N_XMVECTOR, Tan1_XMVECTOR);
-		XMVECTOR Dot = XM_VEC3_DOT(crossNT, Tan2_XMVECTOR);
-		float Handedness = (XM_VECX(Dot) < 0.0f) ? -1.0f : 1.0f;
-		TangetVector = XM_VEC_SETW(TangetVector, Handedness);
-		XM_STORE_FLOAT4(&FinalTangents[i], TangetVector);
-	}
+        float r = 1.0f / (s1 * t2 - s2 * t1);
 
-	return FinalTangents;
+        XMFLOAT3 sdir = {(t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r};
+        XMFLOAT3 tdir = {(s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r};
+
+        Tan1[i1] = {Tan1[i1].x + sdir.x, Tan1[i1].y + sdir.y, Tan1[i1].z + sdir.z};
+        Tan1[i2] = {Tan1[i2].x + sdir.x, Tan1[i2].y + sdir.y, Tan1[i2].z + sdir.z};
+        Tan1[i3] = {Tan1[i3].x + sdir.x, Tan1[i3].y + sdir.y, Tan1[i3].z + sdir.z};
+
+        Tan2[i1] = {Tan2[i1].x + tdir.x, Tan2[i1].y + tdir.y, Tan2[i1].z + tdir.z};
+        Tan2[i2] = {Tan2[i2].x + tdir.x, Tan2[i2].y + tdir.y, Tan2[i2].z + tdir.z};
+        Tan2[i3] = {Tan2[i3].x + tdir.x, Tan2[i3].y + tdir.y, Tan2[i3].z + tdir.z};
+    }
+
+    for (size_t i = 0; i < VertexCount; i++)
+    {
+        XMFLOAT3 N;
+        cgltf_accessor_read_float(NormalAccessor, i, &N.x, 3);
+
+        XMVECTOR N_XMVECTOR = XMLoadFloat3(&N);
+        XMVECTOR Tan1_XMVECTOR = XMLoadFloat3(&Tan1[i]);
+        XMVECTOR Tan2_XMVECTOR = XMLoadFloat3(&Tan2[i]);
+
+        // Gram-Schmidt orthogonalize
+        XMVECTOR NdotTan1 = XM_VEC3_DOT(N_XMVECTOR, Tan1_XMVECTOR);
+        XMVECTOR NxNT = XM_VEC_MULT(N_XMVECTOR, NdotTan1);
+        XMVECTOR TminusNNT = XM_VEC_SUBTRACT(Tan1_XMVECTOR, NxNT);
+        XMVECTOR TangetVector = XM_VEC3_NORM(TminusNNT);
+
+        // Calculate handedness (w)
+        XMVECTOR crossNT = XM_VEC3_CROSS(N_XMVECTOR, Tan1_XMVECTOR);
+        XMVECTOR Dot = XM_VEC3_DOT(crossNT, Tan2_XMVECTOR);
+        float Handedness = (XM_VECX(Dot) < 0.0f) ? -1.0f : 1.0f;
+        TangetVector = XM_VEC_SETW(TangetVector, Handedness);
+        XM_STORE_FLOAT4(&FinalTangents[i], TangetVector);
+    }
+
+    return FinalTangents;
 }

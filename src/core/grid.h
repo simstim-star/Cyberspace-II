@@ -1,10 +1,11 @@
 #pragma once
 #include <DirectXMathC.h>
 
-namespace Senai {
+namespace Sendai
+{
 class Renderer;
 class MeshConstants;
-}
 
-void R_CreateGrid(Sendai::Renderer *const Renderer, const float HalfSide);
-void R_RenderGrid(Sendai::Renderer *const Renderer, Sendai::MeshConstants *const MeshConstants);
+VOID CreateGrid(Sendai::Renderer &const Renderer, const float HalfSide);
+VOID RenderGrid(Sendai::Renderer &const Renderer, Sendai::MeshConstants &MeshConstants);
+} // namespace Sendai

@@ -2,5 +2,5 @@
 
 #include <string_view>
 
-void ExitIfFailed(const HRESULT hr);
-void ExitWithMessage(const std::string_view Message);
+VOID ExitIfFailed(const HRESULT hr);
+VOID ExitWithMessage(const std::string_view Message);

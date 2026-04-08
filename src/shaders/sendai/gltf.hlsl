@@ -18,7 +18,6 @@ cbuffer PBRData : register(b1)
 {
     float4 baseColorFactor;
     
-    // KHSendai::Texture_transform
     float2 uvOffset;
     float2 uvScale;
     float uvRotation;
@@ -53,7 +52,6 @@ struct PSIn
     float2 uv    : TEXCOORD0;
 };
 
-// Based in https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHSendai::Texture_transform/README.md#overview
 PSIn VSMain(VSIn v)
 {
     PSIn o;

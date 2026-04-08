@@ -10,43 +10,48 @@ using Microsoft::WRL::ComPtr;
 static const COMDLG_FILTERSPEC ModelsFilter[] = {{L"glTF Models", L"*.gltf;*.glb"}, {L"All Files", L"*.*"}};
 
 PWSTR
-Win32SelectGLTFPath(void)
+Win32SelectGLTFPath(VOID)
 {
-	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-	if (FAILED(hr)) {
-		return NULL;
-	}
+    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    if (FAILED(hr))
+    {
+        return NULL;
+    }
 
-	ComPtr <IFileOpenDialog> FileOpenDialog = NULL;
-	hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_PPV_ARGS(FileOpenDialog.GetAddressOf()));
-	if (FAILED(hr)) {
-		CoUninitialize();
-		return NULL;
-	}
+    ComPtr<IFileOpenDialog> FileOpenDialog = NULL;
+    hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_PPV_ARGS(FileOpenDialog.GetAddressOf()));
+    if (FAILED(hr))
+    {
+        CoUninitialize();
+        return NULL;
+    }
 
-	FileOpenDialog->SetFileTypes(ARRAYSIZE(ModelsFilter), ModelsFilter);
+    FileOpenDialog->SetFileTypes(ARRAYSIZE(ModelsFilter), ModelsFilter);
 
-	hr = FileOpenDialog->Show(NULL);
-	if (FAILED(hr)) {
-		CoUninitialize();
-		return NULL;
-	}
+    hr = FileOpenDialog->Show(NULL);
+    if (FAILED(hr))
+    {
+        CoUninitialize();
+        return NULL;
+    }
 
-	ComPtr<IShellItem> ChosenFile = NULL;
-	hr = FileOpenDialog->GetResult(&ChosenFile);
-	if (FAILED(hr)) {
-		CoUninitialize();
-		return NULL;
-	}
+    ComPtr<IShellItem> ChosenFile = NULL;
+    hr = FileOpenDialog->GetResult(&ChosenFile);
+    if (FAILED(hr))
+    {
+        CoUninitialize();
+        return NULL;
+    }
 
-	PWSTR FilePath = NULL;
-	hr = ChosenFile->GetDisplayName(SIGDN_FILESYSPATH, &FilePath);
+    PWSTR FilePath = NULL;
+    hr = ChosenFile->GetDisplayName(SIGDN_FILESYSPATH, &FilePath);
 
-	CoUninitialize();
+    CoUninitialize();
 
-	if (FAILED(hr)) {
-		return NULL;
-	}
+    if (FAILED(hr))
+    {
+        return NULL;
+    }
 
-	return FilePath;
+    return FilePath;
 }

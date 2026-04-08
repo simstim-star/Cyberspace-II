@@ -5,216 +5,238 @@
 #include "renderer.h"
 #include "texture.h"
 
-#define STB_DS_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_WINDOWS_UTF8
 #include "../../deps/stb_image.h"
 
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include "../../deps/stb_image_resize2.h"
+#include "../core/log.h"
 
-constexpr UINT8 WHITE_PIXEL[] = {255, 255, 255, 255};
+#include "../shaders/sendai/shader_defs.h"
+#include <d3dx12.h>
+#include <filesystem>
 
-constexpr Sendai::Texture WhiteTexture = {
-  .Width = 1,
-  .Height = 1,
-  .Name = L"fallback_white",
-  .Size = 4,
-  .MipPixels = {WHITE_PIXEL},
-  .MipLevels = 1,
-};
+namespace fs = std::filesystem;
+using Sendai::Textures;
 
-void
-R_CreateUITexture(std::wstring &Path, Sendai::Renderer *Renderer, UINT nkSlotIndex)
+Textures::Textures(ID3D12Device *Device, ID3D12GraphicsCommandList *CommandList)
 {
-	if (Renderer->Textures.contains(Path)) {
-		return;
-	}
+    _TexturesCount = 0;
+    _Device = Device;
+    _CommandList = CommandList;
+    _DescriptorHandleIncrementSize = Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	INT W, H;
-	FILE *f = _wfopen(Path.c_str(), L"rb");
-	if (!f) {
-		return;
-	}
+    D3D12_DESCRIPTOR_HEAP_DESC SrvHeapDesc = {
+        .Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+        .NumDescriptors = PBR_N_TEXTURES_DESCRIPTORS,
+        .Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+        .NodeMask = 0,
+    };
+    HRESULT hr = Device->CreateDescriptorHeap(&SrvHeapDesc, IID_PPV_ARGS(_DescriptorHeap.GetAddressOf()));
+    ExitIfFailed(hr);
+    _DescriptorHeap->SetName(L"TexturesDescHeap");
 
-	UINT8 *Pixels = stbi_load_from_file(f, &W, &H, NULL, 4);
-	fclose(f);
+    D3D12_HEAP_PROPERTIES HeapProps = {.Type = D3D12_HEAP_TYPE_UPLOAD};
+    UploadBuffer.Size = MEGABYTES(128);
+    UploadBuffer.CurrentOffset = 0;
+    auto TextureBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(UploadBuffer.Size);
+    hr = Device->CreateCommittedResource(&HeapProps, D3D12_HEAP_FLAG_NONE, &TextureBufferDesc,
+                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                         IID_PPV_ARGS(UploadBuffer.Buffer.GetAddressOf()));
+    ExitIfFailed(hr);
+    UploadBuffer.Buffer->SetName(L"TextureUploadBuffer");
 
-	Sendai::Texture Source = {
-	  .Width = W,
-	  .Height = H,
-	  .Name = Path.c_str(),
-	  .MipPixels = {Pixels},
-	  .MipLevels = 1,
-	};
-
-	GPUTexture NewTex = {0};
-	NewTex.GpuTexture = R_CommandCreateTextureGPU(Renderer, &Source);
-
-	Renderer->Textures.insert({Path, NewTex});
-
-	stbi_image_free(Pixels);
+    D3D12_RANGE Range = {0, 0};
+    UploadBuffer.Buffer->Map(0, &Range, (VOID **)&UploadBuffer.BaseMappedPtr);
 }
 
-GPUTexture
-R_UploadTexture(Sendai::Renderer *const Renderer, const Sendai::Texture *const Source)
+VOID Textures::CreateUITexture(const std::wstring &Path, const UINT nkSlotIndex)
 {
-	if (Renderer->Textures.contains(Source->Name)) {
-		return Renderer->Textures[Source->Name];
-	}
+    if (Cache.contains(Path))
+    {
+        return;
+    }
 
-	uint32_t SlotIndex = Renderer->TexturesCount++;
-	GPUTexture NewTex = {
-	  .GpuTexture = R_CommandCreateTextureGPU(Renderer, Source),
-	  .HeapIndex = SlotIndex,
-	};
+    if (!fs::exists(Path))
+    {
+        Sendai::LOG.Appendf(L"Path %s doesn't exist", Path);
+        return;
+    }
 
-	D3D12_CPU_DESCRIPTOR_HANDLE CpuDescHandle = Renderer->TexturesHeap->GetCPUDescriptorHandleForHeapStart();
-	CpuDescHandle.ptr += (SIZE_T)SlotIndex * Renderer->DescriptorHandleIncrementSize[D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV];
+    INT W = 0, H = 0, Channels = 0;
+    std::string PathUTF8(Path.begin(), Path.end());
+    UINT8 *Pixels = stbi_load(PathUTF8.c_str(), &W, &H, &Channels, 4);
 
-	D3D12_SHADER_RESOURCE_VIEW_DESC SrvDesc = {
-	  .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
-	  .ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
-	  .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-	  .Texture2D = {.MipLevels = Source->MipLevels},
-	};
+    if (!Pixels)
+    {
+        return;
+    }
 
-	Renderer->Device->CreateShaderResourceView(NewTex.GpuTexture.Get(), &SrvDesc, CpuDescHandle);
-	Renderer->Textures.insert({Source->Name, NewTex});
-	return NewTex;
+    Sendai::Texture Source = {
+        .Width = W,
+        .Height = H,
+        .Name = Path.c_str(),
+        .MipPixels = {Pixels},
+        .MipLevels = 1,
+    };
+
+    GPUTexture NewTex = {0};
+    NewTex.GpuTexture = CommandCreateTextureGPU(Source);
+
+    Cache.try_emplace(Path, NewTex);
+
+    stbi_image_free(Pixels);
 }
 
-void
-R_CreateCustomTexture(std::wstring &Path, Sendai::Renderer *Renderer)
+Sendai::GPUTexture Textures::UploadTexture(const Sendai::Texture &Source)
 {
-	INT W, H;
-	FILE *f = _wfopen(Path.c_str(), L"rb");
-	if (!f) {
-		return;
-	}
-	UINT8 *Pixels = stbi_load_from_file(f, &W, &H, NULL, 4);
-	fclose(f);
-	Sendai::Texture Source = {.Width = W, .Height = H, .Name = Path.c_str(), .MipPixels = {Pixels}, .MipLevels = 1};
-	R_UploadTexture(Renderer, &Source);
-	stbi_image_free(Pixels);
+    if (Cache.contains(Source.Name))
+    {
+        return Cache.at(Source.Name);
+    }
+
+    uint32_t SlotIndex = _TexturesCount++;
+    GPUTexture NewTex = {
+        .GpuTexture = CommandCreateTextureGPU(Source),
+        .HeapIndex = SlotIndex,
+    };
+
+    D3D12_CPU_DESCRIPTOR_HANDLE CpuDescHandle = _DescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+    CpuDescHandle.ptr += (SIZE_T)SlotIndex * _DescriptorHandleIncrementSize;
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC SrvDesc = {
+        .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+        .ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+        .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+        .Texture2D = {.MipLevels = Source.MipLevels},
+    };
+
+    _Device->CreateShaderResourceView(NewTex.GpuTexture.Get(), &SrvDesc, CpuDescHandle);
+    Cache.try_emplace(Source.Name, NewTex);
+    return NewTex;
 }
 
-ComPtr<ID3D12Resource>
-R_CommandCreateTextureGPU(Sendai::Renderer *const Renderer, const Sendai::Texture *const SourceTexture)
+VOID Textures::CreateCustomTexture(const std::wstring &Path)
 {
-	D3D12_RESOURCE_DESC TexDesc = {
-	  .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-	  .Width = (UINT64)SourceTexture->Width,
-	  .Height = (UINT64)SourceTexture->Height,
-	  .DepthOrArraySize = 1,
-	  .MipLevels = (UINT16)SourceTexture->MipLevels,
-	  .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
-	  .SampleDesc = {1, 0},
-	  .Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
-	  .Flags = D3D12_RESOURCE_FLAG_NONE,
-	};
-	ComPtr<ID3D12Resource> Texture;
-	D3D12_HEAP_PROPERTIES HeapDefault = {.Type = D3D12_HEAP_TYPE_DEFAULT};
-	HRESULT hr = Renderer->Device->CreateCommittedResource(&HeapDefault, D3D12_HEAP_FLAG_NONE, &TexDesc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
-														   IID_PPV_ARGS(Texture.GetAddressOf()));
-	ExitIfFailed(hr);
+    if (!fs::exists(Path))
+    {
+        Sendai::LOG.Appendf(L"Path %s doesn't exist", Path);
+        return;
+    }
 
-	D3D12_PLACED_SUBRESOURCE_FOOTPRINT Layouts[D3D12_REQ_MIP_LEVELS];
-	UINT NumRows[D3D12_REQ_MIP_LEVELS];
-	UINT64 RowSizeInBytes[D3D12_REQ_MIP_LEVELS];
-	UINT64 TotalUploadSize = 0;
+    INT W = 0, H = 0, Channels = 0;
+    std::string PathUTF8(Path.begin(), Path.end());
+    UINT8 *Pixels = stbi_load(PathUTF8.c_str(), &W, &H, &Channels, 4);
 
-	Renderer->Device->GetCopyableFootprints(&TexDesc, 0, SourceTexture->MipLevels, 0, Layouts, NumRows, RowSizeInBytes, &TotalUploadSize);
+    if (!Pixels)
+    {
+        return;
+    }
 
-	UINT64 Offset = R_SuballocateTextureUpload(Renderer, TotalUploadSize);
-	UINT8 *pUploadBufferBase = Renderer->TextureUploadBuffer.BaseMappedPtr + Offset;
+    Texture Source = {.Width = W, .Height = H, .Name = Path.c_str(), .MipPixels = {Pixels}, .MipLevels = 1};
+    UploadTexture(Source);
+    stbi_image_free(Pixels);
+}
 
-	for (uint32_t MipLevel = 0; MipLevel < SourceTexture->MipLevels; MipLevel++) {
-		UINT8 *pDestination = pUploadBufferBase + Layouts[MipLevel].Offset;
-		UINT8 *pSource = (UINT8 *)SourceTexture->MipPixels[MipLevel];
-		for (UINT y = 0; y < NumRows[MipLevel]; y++) {
-			std::memcpy(pDestination + (y * Layouts[MipLevel].Footprint.RowPitch), pSource + (y * RowSizeInBytes[MipLevel]),
-				   RowSizeInBytes[MipLevel]);
-		}
-		D3D12_TEXTURE_COPY_LOCATION DestinationLocation = {
-		  .pResource = Texture.Get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = MipLevel};
-		D3D12_TEXTURE_COPY_LOCATION SourceLocation = {.pResource = Renderer->TextureUploadBuffer.Buffer.Get(),
-													  .Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-													  .PlacedFootprint = Layouts[MipLevel]};
-		SourceLocation.PlacedFootprint.Offset += Offset;
-		Renderer->CommandList->CopyTextureRegion(&DestinationLocation, 0, 0, 0, &SourceLocation, NULL);
-	}
+ComPtr<ID3D12Resource> Textures::CommandCreateTextureGPU(const Sendai::Texture &SourceTexture)
+{
+    auto TexDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, (UINT64)SourceTexture.Width,
+                                                (UINT64)SourceTexture.Height, 1, (UINT16)SourceTexture.MipLevels);
+    auto HeapDefault = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    ComPtr<ID3D12Resource> Texture;
+    HRESULT hr =
+        _Device->CreateCommittedResource(&HeapDefault, D3D12_HEAP_FLAG_NONE, &TexDesc, D3D12_RESOURCE_STATE_COPY_DEST,
+                                         NULL, IID_PPV_ARGS(Texture.GetAddressOf()));
+    ExitIfFailed(hr);
 
-	D3D12_RESOURCE_BARRIER Barrier = {.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
-									  .Transition = {
-										.pResource = Texture.Get(),
-										.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-										.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST,
-										.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-									  }};
-	Renderer->CommandList->ResourceBarrier(1, &Barrier);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT Layouts[D3D12_REQ_MIP_LEVELS];
+    UINT NumRows[D3D12_REQ_MIP_LEVELS];
+    UINT64 RowSizeInBytes[D3D12_REQ_MIP_LEVELS];
+    UINT64 TotalUploadSize = 0;
 
-	Texture->SetName(SourceTexture->Name);
-	return Texture;
+    _Device->GetCopyableFootprints(&TexDesc, 0, SourceTexture.MipLevels, 0, Layouts, NumRows, RowSizeInBytes,
+                                   &TotalUploadSize);
+
+    UINT64 Offset = SuballocateTextureUpload(TotalUploadSize);
+    UINT8 *pUploadBufferBase = UploadBuffer.BaseMappedPtr + Offset;
+
+    for (uint32_t MipLevel = 0; MipLevel < SourceTexture.MipLevels; MipLevel++)
+    {
+        UINT8 *pDestination = pUploadBufferBase + Layouts[MipLevel].Offset;
+        UINT8 *pSource = (UINT8 *)SourceTexture.MipPixels[MipLevel];
+        for (UINT y = 0; y < NumRows[MipLevel]; y++)
+        {
+            std::memcpy(pDestination + (y * Layouts[MipLevel].Footprint.RowPitch),
+                        pSource + (y * RowSizeInBytes[MipLevel]), RowSizeInBytes[MipLevel]);
+        }
+        D3D12_TEXTURE_COPY_LOCATION DestinationLocation = {.pResource = Texture.Get(),
+                                                           .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+                                                           .SubresourceIndex = MipLevel};
+        D3D12_TEXTURE_COPY_LOCATION SourceLocation = {.pResource = UploadBuffer.Buffer.Get(),
+                                                      .Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+                                                      .PlacedFootprint = Layouts[MipLevel]};
+        SourceLocation.PlacedFootprint.Offset += Offset;
+        _CommandList->CopyTextureRegion(&DestinationLocation, 0, 0, 0, &SourceLocation, nullptr);
+    }
+
+    auto Barrier = CD3DX12_RESOURCE_BARRIER::Transition(Texture.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                                                        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    _CommandList->ResourceBarrier(1, &Barrier);
+
+    Texture->SetName(SourceTexture.Name);
+    return Texture;
 }
 
 UINT64
-R_SuballocateTextureUpload(Sendai::Renderer *const Renderer, UINT64 Size)
+Textures::SuballocateTextureUpload(const UINT64 Size)
 {
-	UINT64 AlignedOffset = ROUND_UP_POWER_OF_2(Renderer->TextureUploadBuffer.CurrentOffset, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+    UINT64 AlignedOffset = ROUND_UP_POWER_OF_2(UploadBuffer.CurrentOffset, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
 
-	if (AlignedOffset + Size > Renderer->TextureUploadBuffer.Size) {
-		Renderer->ExecuteCommands();
-		Renderer->TextureUploadBuffer.CurrentOffset = Size;
-		return 0;
-	}
+    if (AlignedOffset + Size > UploadBuffer.Size)
+    {
+        UploadBuffer.CurrentOffset = Size;
+        return 0;
+    }
 
-	Renderer->TextureUploadBuffer.CurrentOffset = AlignedOffset + Size;
-	return AlignedOffset;
+    UploadBuffer.CurrentOffset = AlignedOffset + Size;
+    return AlignedOffset;
 }
 
 UINT32
-R_GetTextureIndex(Sendai::Renderer *const Renderer, const Sendai::Texture *const Texture)
+Textures::GetTextureIndex(const Sendai::Texture &Texture)
 {
-	Sendai::Texture Target;
-	if (Texture && Texture->Name) {
-		Target = *Texture;
-	} else {
-		Target = WhiteTexture;
-	}
-
-	GPUTexture Tex = R_UploadTexture(Renderer, &Target);
-	return Tex.HeapIndex;
+    return UploadTexture(WhiteTexture).HeapIndex;
 }
 
-UINT
-R_CalculateMipLevels(INT Width, INT Height)
+VOID Textures::GenerateMips(Sendai::Model *Model, M_Arena *UploadArena)
 {
-	return 1 + (uint32_t)floorf(log2f((float)max(Width, Height)));
-}
+    for (size_t i = 0; i < Model->Images.size(); ++i)
+    {
+        Sendai::Texture *Texture = &Model->Images[i];
 
-void
-R_GenerateMips(Sendai::Model *Model, M_Arena *UploadArena)
-{
-	for (size_t i = 0; i < Model->Images.size(); ++i) {
-		Sendai::Texture *Texture = &Model->Images[i];
+        if (Texture->MipPixels[0] == NULL || Texture->MipLevels <= 1)
+        {
+            continue;
+        }
 
-		if (Texture->MipPixels[0] == NULL || Texture->MipLevels <= 1) {
-			continue;
-		}
+        INT CurrentWidth = Texture->Width;
+        INT CurrentHeight = Texture->Height;
 
-		INT CurrentWidth = Texture->Width;
-		INT CurrentHeight = Texture->Height;
+        for (size_t MipLevel = 1; MipLevel < Texture->MipLevels; MipLevel++)
+        {
+            INT NextWidth = CurrentWidth > 1 ? CurrentWidth / 2 : 1;
+            INT NextHeight = CurrentHeight > 1 ? CurrentHeight / 2 : 1;
 
-		for (size_t MipLevel = 1; MipLevel < Texture->MipLevels; MipLevel++) {
-			INT NextWidth = CurrentWidth > 1 ? CurrentWidth / 2 : 1;
-			INT NextHeight = CurrentHeight > 1 ? CurrentHeight / 2 : 1;
+            Texture->MipPixels[MipLevel] = (UINT8 *)M_ArenaAlloc(UploadArena, NextWidth * NextHeight * 4);
 
-			Texture->MipPixels[MipLevel] = (UINT8 *)M_ArenaAlloc(UploadArena, NextWidth * NextHeight * 4);
+            stbir_resize_uint8_linear((unsigned char *)Texture->MipPixels[MipLevel - 1], CurrentWidth, CurrentHeight, 0,
+                                      (unsigned char *)Texture->MipPixels[MipLevel], NextWidth, NextHeight, 0,
+                                      STBIR_RGBA);
 
-			stbir_resize_uint8_linear((unsigned char *)Texture->MipPixels[MipLevel - 1], CurrentWidth, CurrentHeight, 0,
-									  (unsigned char *)Texture->MipPixels[MipLevel], NextWidth, NextHeight, 0, STBIR_RGBA);
-
-			CurrentWidth = NextWidth;
-			CurrentHeight = NextHeight;
-		}
-	}
+            CurrentWidth = NextWidth;
+            CurrentHeight = NextHeight;
+        }
+    }
 }

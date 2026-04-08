@@ -4,13 +4,15 @@ struct Sendai::Renderer;
 struct ID3D12Device;
 struct ID3D12RootSignature;
 
-typedef enum EShaderType {
+namespace Sendai {
+enum EShaderType {
 	EST_VERTEX_SHADER,
 	EST_PIXEL_SHADER,
-} EShaderType;
+};
 
-HRESULT R_CompileShader(std::wstring &FilePath, ID3DBlob **Blob, EShaderType ShaderType);
-void R_CreatePBRPipelineState(Sendai::Renderer *Renderer);
-void R_CreateBillboardPipelineState(Sendai::Renderer *Renderer);
-void R_CreateGridPipelineState(Sendai::Renderer *Renderer);
-XMMATRIX R_NormalMatrix(XMFLOAT4X4 *Model);
+HRESULT CompileShader(std::wstring &FilePath, ID3DBlob **Blob, EShaderType ShaderType);
+VOID CreatePBRPipelineState(Sendai::Renderer *Renderer);
+VOID CreateBillboardPipelineState(Sendai::Renderer *Renderer);
+VOID CreateGridPipelineState(Sendai::Renderer *Renderer);
+XMMATRIX NormalMatrix(XMFLOAT4X4 *Model);
+} // namespace Senai

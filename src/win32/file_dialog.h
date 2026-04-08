@@ -1,3 +1,3 @@
 #pragma once
 
-PWSTR Win32SelectGLTFPath(void);
+PWSTR Win32SelectGLTFPath(VOID);

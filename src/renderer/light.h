@@ -3,16 +3,16 @@
 
 #define IS_LIGHT_ACTIVE(mask, i) (((mask) >> (i)) & 1)
 
-namespace Sendai {
+namespace Sendai
+{
 class Renderer;
 class Camera;
 class Scene;
+
+VOID LightsInit(Sendai::Scene &Scene, const Sendai::Camera &Camera);
+VOID UpdateLights(BYTE ActiveLightMask, const Sendai::Light *const InLights, Sendai::Light *const OutLights,
+                  UINT NumLights);
+
+VOID RenderLightBillboards(Sendai::Renderer &Renderer, const Sendai::Light *Lights, BYTE ActiveLightMask,
+                           Sendai::MeshConstants &MeshConstants);
 } // namespace Sendai
-
-VOID R_LightsInit(Sendai::Scene &Scene, const Sendai::Camera &Camera);
-VOID R_UpdateLights(BYTE ActiveLightMask, const Sendai::Light *const InLights, Sendai::Light *const OutLights, UINT NumLights);
-
-VOID R_RenderLightBillboards(Sendai::Renderer *const Renderer,
-							 const Sendai::Light *Lights,
-							 BYTE ActiveLightMask,
-							 Sendai::MeshConstants *const MeshConstants);

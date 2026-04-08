@@ -35,7 +35,7 @@ cbuffer PBRData : register(b1)
     float roughnessFactor;
     float3 emissiveFactor;
     
-    // KHSendai::Texture_transform
+    // KHR_texture_transform
     float2 uvOffset;
     float2 uvScale;
     float uvRotation;
@@ -84,7 +84,7 @@ PSIn VSMain(VSIn v)
     o.fragPos = mul(float4(v.pos, 1.0), model).xyz;
     o.norm = mul(float4(v.norm, 0.0), normal).xyz;
     
-    // Based in https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHSendai::Texture_transform/README.md#overview
+    // Based in https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_texture_transform/README.md#overview
     float s = sin(uvRotation);
     float c = cos(uvRotation);
     

@@ -2,6 +2,7 @@
 
 #include "log.h"
 
-namespace Sendai {
+namespace Sendai
+{
 Log LOG;
 }

@@ -1,6 +1,7 @@
 ﻿cmake_minimum_required (VERSION 3.8)
 
 project(__cyberspaceII LANGUAGES CXX)
+include(FetchContent)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -18,12 +19,10 @@ set(CORE_HEADERS "src/core/camera.h" "src/core/memory.h" "src/core/timer.h" "src
 set(RENDERER_HEADERS "src/renderer/renderer.h" "src/renderer/render_types.h" "src/renderer/shader.h" "src/renderer/light.h" 
 "src/renderer/texture.h" "src/renderer/billboard.h")
 set(WIN32_HEADERS "src/win32/win_path.h" "src/win32/str_helper.h" "src/win32/file_dialog.h")
-set(UI_HEADERS)
-set(DX_HELPERS "src/dx_helpers/barrier_helpers.h" "src/dx_helpers/desc_helpers.h")
 set(GLTF_HEADERS "src/assets/gltf.h")
 set(HEADER_FILES ${CORE_HEADERS} ${WIN32_HEADERS} ${RENDERER_HEADERS} ${UI_HEADERS} ${DX_HELPERS} ${DX_HELPERS} ${GLTF_HEADERS})
 
-set(DEPS_FILES "deps/b64.h" "deps/cgltf.h" "deps/nuklear.h" "deps/stb_ds.h" "deps/stb_image.h" "deps/stb_image_resize2.h")
+set(DEPS_FILES "deps/b64.h" "deps/cgltf.h" "deps/stb_image.h" "deps/stb_image_resize2.h")
 
 set(SHADER_FILES "src/shaders/sendai/gltf.hlsl" "src/shaders/sendai/pbr.hlsl" "src/shaders/sendai/billboard.hlsl" 
 "src/shaders/sendai/grid.hlsl" "src/shaders/sendai/shader_defs.h")
@@ -41,6 +40,14 @@ source_group("Libs" FILES ${DEPS_FILES})
 
 set(ALL_PROJECT_FILES ${SOURCE_FILES} ${HEADER_FILES} ${SHADER_FILES})
 
+FetchContent_Declare(
+    directx_headers
+    GIT_REPOSITORY https://github.com/microsoft/DirectX-Headers.git
+    GIT_TAG        13a4c364681301385204238a5dd46b65f27ab665
+)
+FetchContent_MakeAvailable(directx_headers)
+message(STATUS "DirectX Headers Source Dir: ${directx_headers_SOURCE_DIR}")
+
 # You need to add all files on the executable for them to be visible on 
 # the source_group in Visual Studio
 # https://stackoverflow.com/a/31653555/14815076
@@ -52,7 +59,14 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE UNICODE _UNICODE)
 set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS "/SUBSYSTEM:WINDOWS")
 
 find_package(XMathC REQUIRED PATHS "C:/xmathc")
-target_link_libraries(${PROJECT_NAME} PUBLIC d3d12.lib dxguid.lib dxgi.lib D3DCompiler.lib XMathC)
+
+target_include_directories(${PROJECT_NAME} PRIVATE 
+    ${directx_headers_SOURCE_DIR}/include/directx
+    ${directx_headers_SOURCE_DIR}/include
+)
+
+target_link_libraries(${PROJECT_NAME} PUBLIC d3d12.lib dxguid.lib dxgi.lib D3DCompiler.lib XMathC DirectX-Headers)
+
 target_link_options(${PROJECT_NAME} PRIVATE /INCREMENTAL:NO)
 
 add_custom_command(

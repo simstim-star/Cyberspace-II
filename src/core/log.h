@@ -10,7 +10,7 @@ class Log {
   public:
 	static constexpr size_t Capacity = 4096;
 
-	inline void
+	inline VOID
 	Append(std::wstring_view Text)
 	{
 		if (Text.empty() || _Buffer.size() >= Capacity) {
@@ -24,7 +24,7 @@ class Log {
 	}
 
 	template <typename... Args>
-	inline void
+	inline VOID
 	Appendf(std::wformat_string<Args...> fmt, Args &&...args)
 	{
 		if (_Buffer.size() >= Capacity) {
@@ -46,7 +46,7 @@ class Log {
 		return _Buffer.c_str();
 	}
 
-	inline void
+	inline VOID
 	Clear()
 	{
 		_Buffer.clear();
