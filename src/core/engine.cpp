@@ -1,35 +1,29 @@
 #include "pch.h"
 
-#include "../assets/gltf.h"
+#include "engine.h"
 #include "../renderer/light.h"
 #include "../renderer/renderer.h"
 #include "../renderer/shader.h"
 #include "../renderer/texture.h"
 #include "../win32/file_dialog.h"
 #include "../win32/win_path.h"
-#include "engine.h"
+#include "../assets/asset_loader.h"
+#include "../ui/ui.h"
 
-/****************************************************
-    Forward declaration of private functions
-*****************************************************/
+#include <imgui_impl_win32.h>
 
-LRESULT CALLBACK WindowProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam);
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-/****************************************************
-    Public functions
-*****************************************************/
+LRESULT CALLBACK _WindowProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam);
 
 Sendai::App::App(std::wstring Title)
     : Window{Title, 900, 600}, bRunning{TRUE}, Camera{{0, 3, -20}},
-      Scene{
-          .SceneArena = M_ArenaInit(MEGABYTES(512)),
-      },
       FrameCounter{0}
 {
     WNDCLASSEX wc = {0};
     wc.cbSize = sizeof(WNDCLASSEX);
     wc.style = CS_CLASSDC | CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = WindowProc;
+    wc.lpfnWndProc = _WindowProc;
     wc.hInstance = Window.hInstance;
     wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
@@ -44,6 +38,7 @@ Sendai::App::App(std::wstring Title)
 
     Scene.Models.reserve(10000);
     RendererCore = std::make_unique<Renderer>(Window.hWnd, Window.Width, Window.Height);
+    UI = std::make_unique<Sendai::UI>(Window.hWnd, RendererCore->Device.Get());
 }
 
 VOID Sendai::App::Update()
@@ -68,29 +63,30 @@ INT Sendai::Run()
 
     ShowWindow(App.Window.hWnd, SW_MAXIMIZE);
 
-    MSG msg = {0};
+    MSG Message = {0};
     while (App.bRunning)
     {
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+        while (PeekMessage(&Message, NULL, 0, 0, PM_REMOVE))
         {
-            if (msg.message == WM_QUIT)
+            if (Message.message == WM_QUIT)
             {
                 App.bRunning = FALSE;
             }
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
+            TranslateMessage(&Message);
+            DispatchMessage(&Message);
         }
 
         if (App.bRunning)
         {
             App.Update();
-            App.RendererCore->Draw(App.Scene, App.Camera);
+            App.UI->PrepareData(*App.RendererCore.get(), App.Scene);
+            App.RendererCore->BeginDraw(App.Scene, App.Camera);
+            App.UI->Draw(App.RendererCore->CommandList.Get());
+            App.RendererCore->EndDraw();
         }
     }
 
-    M_ArenaRelease(&App.Scene.SceneArena);
-
-    return (INT)(msg.wParam);
+    return (INT)(Message.wParam);
 }
 
 VOID Sendai::AfterRun()
@@ -113,15 +109,8 @@ VOID Sendai::Callback::FileOpen(Sendai::App *const Engine)
     std::wstring FilePath = Win32SelectGLTFPath();
 
     Sendai::Scene &Scene = Engine->Scene;
-    if (Scene.UploadArena.Base)
-    {
-        M_ArenaRelease(&Scene.UploadArena);
-    }
-
-    Scene.UploadArena = M_ArenaInit(GIGABYTES(1));
-    SendaiGLTF_LoadModel(Engine->RendererCore.get(), FilePath, Scene);
+    Sendai::LoadModel(Engine->RendererCore.get(), FilePath, Scene);
     UINT ModelIdx = Scene.Models.size() - 1;
-    M_ArenaRelease(&Scene.UploadArena);
 }
 
 VOID Sendai::Callback::WireframeMode(Sendai::App *const Engine)
@@ -141,13 +130,12 @@ VOID Sendai::Callback::GridMode(Sendai::App *const Engine)
     Engine->RendererCore->bDrawGrid = !Engine->RendererCore->bDrawGrid;
 }
 
-/****************************************************
-    Implementation of private functions
-*****************************************************/
-
-LRESULT CALLBACK WindowProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK _WindowProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam)
 {
     Sendai::App *Engine = (Sendai::App *)(GetWindowLongPtr(hWnd, GWLP_USERDATA));
+
+    if (ImGui_ImplWin32_WndProcHandler(hWnd, Message, wParam, lParam))
+        return TRUE;
 
     switch (Message)
     {

@@ -1,5 +1,6 @@
 #include "../core/pch.h"
 
+#include "billboard.h"
 #include "light.h"
 #include "render_types.h"
 #include "renderer.h"
@@ -8,19 +9,18 @@
 
 #include "../core/camera.h"
 #include "../core/grid.h"
-#include "../core/memory.h"
 #include "../error/error.h"
 #include "../shaders/sendai/shader_defs.h"
+#include "../ui/ui.h"
 #include "../win32/win_path.h"
 
-#include "billboard.h"
-#include <d3dx12.h>
+using namespace DirectX;
 
 using Sendai::Renderer;
 
 constexpr FLOAT CLEAR_COLOR[] = {0.0f, 0.0f, 0.0f, 1.0f};
 
-Renderer::Renderer(HWND hWnd, UINT Width, UINT Height)
+Renderer::Renderer(HWND hWnd, UINT Width, UINT Height) : SceneDataUploadBuffer{D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT}
 {
     hWnd = hWnd;
     AspectRatio = static_cast<FLOAT>(Width) / (Height);
@@ -35,7 +35,6 @@ Renderer::Renderer(HWND hWnd, UINT Width, UINT Height)
     bDrawGrid = TRUE;
 
     MeshDataOffset = 0;
-    SceneDataOffset = 0;
     CurrentUploadBufferOffset = 0;
     CurrentVertexBufferOffset = 0;
     CurrentIndexBufferOffset = 0;
@@ -57,7 +56,7 @@ Renderer::Renderer(HWND hWnd, UINT Width, UINT Height)
     HRESULT hr = CreateDXGIFactory2(bIsDebugFactory, IID_PPV_ARGS(Factory.GetAddressOf()));
     ExitIfFailed(hr);
 
-    GetAdapter(Factory.Get());
+    _GetAdapter(Factory.Get());
 
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(Device.GetAddressOf()));
     ExitIfFailed(hr);
@@ -127,13 +126,13 @@ Renderer::Renderer(HWND hWnd, UINT Width, UINT Height)
 
     Textures = std::make_unique<Sendai::Textures>(Device.Get(), CommandList.Get());
 
-    SetRtvBuffers();
-    CreateSceneResources();
-    CreateDepthStencilBuffer(Width, Height);
-    CreateShaders();
+    _SetRtvBuffers();
+    _CreateSceneResources();
+    _CreateDepthStencilBuffer(Width, Height);
+    _CreateShaders();
 }
 
-VOID Renderer::Draw(const Sendai::Scene &Scene, const Sendai::Camera &Camera)
+void Renderer::BeginDraw(Sendai::Scene &Scene, const Sendai::Camera &Camera)
 {
     CommandList->RSSetViewports(1, &Viewport);
     CommandList->RSSetScissorRects(1, &ScissorRect);
@@ -141,31 +140,40 @@ VOID Renderer::Draw(const Sendai::Scene &Scene, const Sendai::Camera &Camera)
     auto ResourceBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
         RtvBuffers[RtvIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
     CommandList->ResourceBarrier(1, &ResourceBarrier);
-    D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilCPUHandle = DepthStencilHeap->GetCPUDescriptorHandleForHeapStart();
+
+    auto DepthStencilCPUHandle = DepthStencilHeap->GetCPUDescriptorHandleForHeapStart();
     CommandList->OMSetRenderTargets(1, &RtvHandles[RtvIndex], FALSE, &DepthStencilCPUHandle);
     CommandList->ClearRenderTargetView(RtvHandles[RtvIndex], CLEAR_COLOR, 0, NULL);
     CommandList->ClearDepthStencilView(DepthStencilCPUHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
     CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D12DescriptorHeap *Heaps[] = {Textures->GetHeap()};
-    CommandList->SetDescriptorHeaps(_countof(Heaps), Heaps);
+
+    ID3D12DescriptorHeap *EngineHeaps[] = {Textures->GetHeap()};
+    CommandList->SetDescriptorHeaps(_countof(EngineHeaps), EngineHeaps);
+
+    MeshConstants MeshConstants = {
+        .MVP = {
+            .View = Camera.GetViewMatrix(),
+            .Proj = Camera.GetProjectionMatrix(DirectX::XM_PIDIV4, AspectRatio, 0.1f, 1000.0f),
+        }};
 
     UINT64 StartMeshDataOffset = MeshDataOffset;
-    UINT64 StartSceneDataOffset = SceneDataOffset;
+    UINT64 StartSceneDataOffset = SceneDataUploadBuffer.CurrentOffset;
 
-    MeshConstants MeshConstants = {.MVP = {
-                                       .View = Camera.ViewMatrix(),
-                                       .Proj = Camera.ProjectionMatrix(XM_PIDIV4, AspectRatio, 0.1f, 1000.0f),
-                                   }};
-    RenderPrimitives(Scene, MeshConstants);
+    _RenderPrimitives(Scene, MeshConstants);
+
     if (bDrawGrid)
     {
         RenderGrid(*this, MeshConstants);
     }
+
     RenderLightBillboards(Scene.Data.Lights, Scene.ActiveLightMask, &MeshConstants);
 
     MeshDataOffset = StartMeshDataOffset;
-    SceneDataOffset = StartSceneDataOffset;
+    SceneDataUploadBuffer.CurrentOffset = StartSceneDataOffset;
+}
 
+VOID Sendai::Renderer::EndDraw()
+{
     auto PresentBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
         RtvBuffers[RtvIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
     CommandList->ResourceBarrier(1, &PresentBarrier);
@@ -182,7 +190,7 @@ VOID Renderer::ExecuteCommands()
     CommandList->Close();
     ID3D12CommandList *CmdLists[] = {(ID3D12CommandList *)CommandList.Get()};
     CommandQueue->ExecuteCommandLists(1, CmdLists);
-    SignalAndWait();
+    _SignalAndWait();
     CommandAllocator->Reset();
     CommandList->Reset(CommandAllocator.Get(), PipelineState[State].Get());
 }
@@ -191,7 +199,7 @@ VOID Renderer::SwapchainResize(INT Width, INT Height)
 {
     for (INT i = 0; i < FRAME_COUNT; ++i)
     {
-        SignalAndWait();
+        _SignalAndWait();
         RtvBuffers[i].Reset();
     }
 
@@ -222,14 +230,14 @@ VOID Renderer::SwapchainResize(INT Width, INT Height)
                 .MaxDepth = 1.0f};
     ScissorRect = {0, 0, (LONG)Width, (LONG)Height};
 
-    CreateDepthStencilBuffer(Width, Height);
+    _CreateDepthStencilBuffer(Width, Height);
 }
 
 Renderer::~Renderer()
 {
     for (INT i = 0; i < FRAME_COUNT; ++i)
     {
-        SignalAndWait();
+        _SignalAndWait();
     }
     CloseHandle(FenceEvent);
 }
@@ -245,22 +253,19 @@ VOID Renderer::RenderLightBillboards(const Light *Lights, BYTE ActiveLightMask, 
         (UINT64)ERSI_BILLBOARD_LAMP * DescriptorHandleIncrementSize[D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV];
     CommandList->SetGraphicsRootDescriptorTable(1, LampTextureHandle);
 
-    for (int i = 0; i < PBR_MAX_LIGHT_NUMBER; ++i)
+    for (uint32_t i = 0; i < PBR_MAX_LIGHT_NUMBER; ++i)
     {
-        if (ActiveLightMask & (1 << i))
+        if ((ActiveLightMask & (1 << i)) != 0)
         {
-            XMVECTOR LightPos = XMLoadFloat3(&Lights[i].LightPosition);
-            MeshConstants->MVP.Model = XM_MAT_TRANSLATION_FROM_VEC(LightPos);
-            RenderLightBillboard(MeshConstants, Lights[i].LightColor);
+            const auto &light = Lights[i];
+            const XMVECTOR lightPos = XMLoadFloat3(&light.LightPosition);
+            MeshConstants->MVP.Model = XMMatrixTranslationFromVector(lightPos);
+            _RenderLightBillboard(MeshConstants, light.LightColor);
         }
     }
 }
 
-/****************************************************
-    Implementation of private functions
-*****************************************************/
-
-VOID Renderer::SignalAndWait()
+VOID Renderer::_SignalAndWait()
 {
     HRESULT hr = CommandQueue->Signal(Fence.Get(), ++FenceValue);
     ExitIfFailed(hr);
@@ -268,59 +273,54 @@ VOID Renderer::SignalAndWait()
     WaitForSingleObject(FenceEvent, INFINITE);
 }
 
-VOID Renderer::RenderPrimitives(const Scene &Scene, MeshConstants &MeshConstants)
+VOID Renderer::_RenderPrimitives(const Scene &Scene, MeshConstants &MeshConstants)
 {
     CommandList->SetGraphicsRootSignature(RootSignPBR.Get());
     UINT8 *MeshDataCpuAddress = MeshDataUploadBufferCpuAddress;
 
-    SceneData SceneData = PreprocessSceneData(Scene);
-    std::memcpy(SceneDataUploadBufferCpuAddress + SceneDataOffset, &SceneData, sizeof(SceneData));
-    CommandList->SetGraphicsRootConstantBufferView(2, M_GpuAddress(SceneDataUploadBuffer.Get(), SceneDataOffset));
-    SceneDataOffset += CB_ALIGN(SceneData);
+    SceneData SceneData = _PreprocessSceneData(Scene);
+    auto ScenaDataAddress = SceneDataUploadBuffer.Insert(SceneData);
+    CommandList->SetGraphicsRootConstantBufferView(2, ScenaDataAddress);
 
     D3D12_GPU_DESCRIPTOR_HANDLE TexturesHeapStart = Textures->GetHeapDescriptorHandle();
     CommandList->SetGraphicsRootDescriptorTable(3, TexturesHeapStart);
 
-    for (auto &Model : Scene.Models)
+    for (const auto &Model : Scene.Models)
     {
-        if (!Model.Visible)
+        if (!Model.bVisible)
         {
             continue;
         }
+
         XMMATRIX T = XMMatrixTranslation(Model.Position.x, Model.Position.y, Model.Position.z);
         XMMATRIX R = XMMatrixRotationRollPitchYaw(Model.Rotation.x, Model.Rotation.y, Model.Rotation.z);
         XMMATRIX S = XMMatrixScaling(Model.Scale.x, Model.Scale.y, Model.Scale.z);
-        XMMATRIX M = XM_MAT_MULT(S, R);
-        M = XM_MAT_MULT(M, T);
-        for (auto &Node : Model.Nodes)
-        {
-            MeshConstants.MVP.Model = XMLoadFloat4x4(&Node.ModelMatrix);
-            MeshConstants.MVP.Model = XM_MAT_MULT(MeshConstants.MVP.Model, M);
-            XMFLOAT4X4 ModelXMFLOAT;
-            XM_STORE_FLOAT4X4(&ModelXMFLOAT, MeshConstants.MVP.Model);
-            MeshConstants.Normal = NormalMatrix(&ModelXMFLOAT);
-
-            std::memcpy(MeshDataCpuAddress + MeshDataOffset, &MeshConstants, sizeof(Sendai::MeshConstants));
-            CommandList->SetGraphicsRootConstantBufferView(0, M_GpuAddress(MeshDataUploadBuffer.Get(), MeshDataOffset));
-            MeshDataOffset += CB_ALIGN(MeshConstants);
-
-            if (Node.MeshData)
-            {
-                Mesh *Mesh = Node.MeshData.get();
-                for (INT PrimitiveIdx = 0; PrimitiveIdx < Mesh->Primitives.size(); ++PrimitiveIdx)
-                {
-                    Primitive *Primitive = &Mesh->Primitives[PrimitiveIdx];
-                    CommandList->SetGraphicsRoot32BitConstants(1, NUM_32BITS_PBR_VALUES, &Primitive->ConstantBuffer, 0);
-                    CommandList->IASetVertexBuffers(0, 1, &Primitive->VertexBufferView);
-                    CommandList->IASetIndexBuffer(&Primitive->IndexBufferView);
-                    CommandList->DrawIndexedInstanced(Primitive->IndexCount, 1, 0, 0, 0);
-                }
-            }
-        }
+        XMMATRIX ModelWorld = S * R * T;
+        _RenderNode(Model, ModelWorld, MeshConstants);
     }
 }
 
-VOID Renderer::CreateDepthStencilBuffer(UINT Width, UINT Height)
+VOID Renderer::_RenderNode(const Sendai::Model &Model, XMMATRIX ParentTransform, Sendai::MeshConstants &MeshConstants)
+{
+    for (const auto &Primitive : Model.Primitives)
+    {
+        MeshConstants.MVP.Model = ParentTransform;
+
+        XMFLOAT4X4 ModelXMFLOAT;
+        XMStoreFloat4x4(&ModelXMFLOAT, MeshConstants.MVP.Model);
+        MeshConstants.Normal = NormalMatrix(&ModelXMFLOAT);
+
+        std::memcpy(MeshDataUploadBufferCpuAddress + MeshDataOffset, &MeshConstants, sizeof(Sendai::MeshConstants));
+        CommandList->SetGraphicsRootConstantBufferView(0, M_GpuAddress(MeshDataUploadBuffer.Get(), MeshDataOffset));
+        CommandList->SetGraphicsRoot32BitConstants(1, NUM_32BITS_PBR_VALUES, &Primitive.ConstantBuffer, 0);
+        CommandList->IASetVertexBuffers(0, 1, &Primitive.VertexBufferView);
+        CommandList->IASetIndexBuffer(&Primitive.IndexBufferView);
+        CommandList->DrawIndexedInstanced(Primitive.IndexCount, 1, 0, 0, 0);
+        MeshDataOffset += CB_ALIGN(MeshConstants);
+    }
+}
+
+VOID Renderer::_CreateDepthStencilBuffer(UINT Width, UINT Height)
 {
     D3D12_DESCRIPTOR_HEAP_DESC DepthStencilHeapDesc = {
         .Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV, .NumDescriptors = 1, .Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE};
@@ -342,7 +342,7 @@ VOID Renderer::CreateDepthStencilBuffer(UINT Width, UINT Height)
     DepthStencilHeap->SetName(L"DepthStencilHeap");
 }
 
-VOID Renderer::SetRtvBuffers()
+VOID Renderer::_SetRtvBuffers()
 {
     D3D12_CPU_DESCRIPTOR_HANDLE RtvDescriptorHandle = RtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
     for (UINT i = 0; i < FRAME_COUNT; ++i)
@@ -355,7 +355,7 @@ VOID Renderer::SetRtvBuffers()
     }
 }
 
-VOID Renderer::CreateSceneResources()
+VOID Renderer::_CreateSceneResources()
 {
     HRESULT hr;
     auto BufferDesc = CD3DX12_RESOURCE_DESC::Buffer(MEGABYTES(128));
@@ -383,44 +383,42 @@ VOID Renderer::CreateSceneResources()
     BufferDesc.Width = MEGABYTES(1);
     hr = Device->CreateCommittedResource(&UploadHeapProps, D3D12_HEAP_FLAG_NONE, &BufferDesc,
                                          D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
-                                         IID_PPV_ARGS(SceneDataUploadBuffer.GetAddressOf()));
+                                         IID_PPV_ARGS(SceneDataUploadBuffer.Buffer.GetAddressOf()));
     ExitIfFailed(hr);
 
     /* Not sure if ideal, but I decided to maintain my buffers mapped during the whole lifetime of the engine */
     D3D12_RANGE Range = {0, 0};
     MeshDataUploadBuffer->Map(0, &Range, (VOID **)&MeshDataUploadBufferCpuAddress);
-    SceneDataUploadBuffer->Map(0, &Range, (VOID **)&SceneDataUploadBufferCpuAddress);
+    SceneDataUploadBuffer.Map();
     UploadBuffer->Map(0, nullptr, (VOID **)&UploadBufferCpuAddress);
 
-    CreateBaseEngineTextures();
+    _CreateBaseEngineTextures();
     CreateGrid(*this, 100.f);
 }
 
-VOID Renderer::CreateBaseEngineTextures()
+VOID Renderer::_CreateBaseEngineTextures()
 {
     auto LampImagePath = Win32FullPath(L"/assets/images/lamp.png");
-    Textures->CreateCustomTexture(LampImagePath);
-    std::memcpy(SceneDataUploadBufferCpuAddress + SceneDataOffset, BillboardVertices, sizeof(BillboardVertices));
-    BillboardBufferLocation = M_GpuAddress(SceneDataUploadBuffer.Get(), SceneDataOffset);
-    SceneDataOffset += CB_ALIGN(BillboardVertices);
+    Textures->Load(Device.Get(), LampImagePath);
+    BillboardBufferLocation = SceneDataUploadBuffer.Insert(BillboardVertices);
 }
 
-VOID Renderer::CreateShaders()
+VOID Renderer::_CreateShaders()
 {
     CreatePBRPipelineState(this);
     CreateBillboardPipelineState(this);
     CreateGridPipelineState(this);
 }
 
-Sendai::SceneData Renderer::PreprocessSceneData(const Sendai::Scene &Scene)
+Sendai::SceneData Renderer::_PreprocessSceneData(const Sendai::Scene &Scene)
 {
-    SceneData Result = {0};
+    SceneData Result;
     Result.CameraPosition = Scene.Data.CameraPosition;
     UpdateLights(Scene.ActiveLightMask, Scene.Data.Lights, Result.Lights, PBR_MAX_LIGHT_NUMBER);
     return Result;
 }
 
-VOID Renderer::GetAdapter(IDXGIFactory2 *Factory)
+VOID Renderer::_GetAdapter(IDXGIFactory2 *Factory)
 {
     for (UINT i = 0; SUCCEEDED(Factory->EnumAdapters(i, (IDXGIAdapter **)Adapter.GetAddressOf())); ++i)
     {
@@ -434,7 +432,7 @@ VOID Renderer::GetAdapter(IDXGIFactory2 *Factory)
     }
 }
 
-VOID Renderer::RenderLightBillboard(const MeshConstants *const MeshConstants, XMFLOAT3 Tint)
+VOID Renderer::_RenderLightBillboard(const MeshConstants *const MeshConstants, XMFLOAT3 Tint)
 {
     LightBillboardConstants CB = {.MVP = MeshConstants->MVP, .Tint = Tint};
     std::memcpy(MeshDataUploadBufferCpuAddress + MeshDataOffset, &CB, sizeof(LightBillboardConstants));

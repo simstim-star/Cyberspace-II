@@ -12,8 +12,5 @@ struct Scene
 
     SceneData Data;
     BYTE ActiveLightMask;
-
-    M_Arena SceneArena;
-    M_Arena UploadArena;
 };
 } // namespace Sendai

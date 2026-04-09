@@ -3,11 +3,10 @@
 #include "file_dialog.h"
 #include <shobjidl.h>
 
-#include <wrl/client.h>
-
 using Microsoft::WRL::ComPtr;
 
-static const COMDLG_FILTERSPEC ModelsFilter[] = {{L"glTF Models", L"*.gltf;*.glb"}, {L"All Files", L"*.*"}};
+constexpr COMDLG_FILTERSPEC ModelsFilter[] = {
+    {L"glTF Models", L"*.gltf;*.glb"}, {L"obj Models", L"*.obj"}, {L"All Files", L"*.*"}};
 
 PWSTR
 Win32SelectGLTFPath(VOID)

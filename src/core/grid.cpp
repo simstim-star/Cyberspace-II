@@ -1,18 +1,21 @@
 #include "pch.h"
 
-#include "../renderer/render_types.h"
-#include "../renderer/renderer.h"
-#include "grid.h"
 
-#include <DirectXMathC.h>
+#include "grid.h"
+#include "../renderer/renderer.h"
+#include "../renderer/render_types.h"
+
+#include <DirectXMath.h>
+
+using namespace DirectX;
 
 #define GRID_VERTICES_COUNT 300
-static XMFLOAT3 GRID_VERTICES[GRID_VERTICES_COUNT] = {0};
+static XMFLOAT3 GRID_VERTICES[GRID_VERTICES_COUNT] = {};
 
-VOID Sendai::CreateGrid(Sendai::Renderer &Renderer, const float HalfSide)
+VOID Sendai::CreateGrid(Sendai::Renderer &Renderer, const FLOAT HalfSide)
 {
     const INT LinesPerDirection = (GRID_VERTICES_COUNT / 4);
-    const FLOAT Step = (HalfSide * 2.0f) / (float)(LinesPerDirection - 1);
+    const FLOAT Step = (HalfSide * 2.0f) / (FLOAT)(LinesPerDirection - 1);
 
     for (INT Line = 0; Line < LinesPerDirection; Line++)
     {
@@ -24,10 +27,7 @@ VOID Sendai::CreateGrid(Sendai::Renderer &Renderer, const float HalfSide)
         GRID_VERTICES[i + 3] = {HalfSide, 0.0f, Position};
     }
 
-    std::memcpy(Renderer.SceneDataUploadBufferCpuAddress + Renderer.SceneDataOffset, &GRID_VERTICES,
-                sizeof(GRID_VERTICES));
-    Renderer.GridBufferLocation = M_GpuAddress(Renderer.SceneDataUploadBuffer.Get(), Renderer.SceneDataOffset);
-    Renderer.SceneDataOffset += CB_ALIGN(GRID_VERTICES);
+    Renderer.GridBufferLocation = Renderer.SceneDataUploadBuffer.Insert(GRID_VERTICES);
 }
 
 VOID Sendai::RenderGrid(Sendai::Renderer &Renderer, Sendai::MeshConstants &MeshConstants)

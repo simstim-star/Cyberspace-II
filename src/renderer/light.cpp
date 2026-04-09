@@ -7,7 +7,10 @@
 #include "../core/engine.h"
 #include "../core/memory.h"
 #include "../core/scene.h"
+#include "../renderer/renderer.h"
 #include "../shaders/sendai/shader_defs.h"
+
+using namespace DirectX;
 
 static VOID RenderLightBillboard(const Sendai::MeshConstants &MeshConstants, Sendai::Renderer &Renderer, XMFLOAT3 Tint);
 
@@ -60,7 +63,7 @@ VOID Sendai::RenderLightBillboards(Sendai::Renderer &Renderer, const Sendai::Lig
         if (ActiveLightMask & (1 << i))
         {
             XMVECTOR LightPos = XMLoadFloat3(&Lights[i].LightPosition);
-            MeshConstants.MVP.Model = XM_MAT_TRANSLATION_FROM_VEC(LightPos);
+            MeshConstants.MVP.Model = XMMatrixTranslationFromVector(LightPos);
             RenderLightBillboard(MeshConstants, Renderer, Lights[i].LightColor);
         }
     }

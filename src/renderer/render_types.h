@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DirectXMathC.h"
+#include "DirectXMath.h"
 #include <array>
 #include <memory>
 #include <string>
@@ -13,26 +13,25 @@ namespace Sendai
 
 struct Vertex
 {
-    XMFLOAT3 Position;
-    XMFLOAT3 Normal;
-    XMFLOAT4 Tangent;
-    XMFLOAT2 UV0;
-    XMFLOAT2 UV1;
+    DirectX::XMFLOAT3 Position;
+    DirectX::XMFLOAT3 Normal;
+    DirectX::XMFLOAT4 Tangent;
+    DirectX::XMFLOAT2 UV0;
+    DirectX::XMFLOAT2 UV1;
 };
 
 struct PBRConstantBuffer
 {
-    XMFLOAT4 BaseColorFactor;
+    DirectX::XMFLOAT4 BaseColorFactor;
     FLOAT MetallicFactor;
     FLOAT RoughnessFactor;
     FLOAT Padding0[2];
 
-    XMFLOAT3 EmissiveFactor;
+    DirectX::XMFLOAT3 EmissiveFactor;
     FLOAT Padding1;
-    FLOAT XXX;
 
-    XMFLOAT2 UVOffset;
-    XMFLOAT2 UVScale;
+    DirectX::XMFLOAT2 UVOffset;
+    DirectX::XMFLOAT2 UVScale;
     FLOAT UVRotation;
 
     UINT32 AlbedoTextureIndex;
@@ -46,9 +45,9 @@ constexpr size_t NUM_32BITS_PBR_VALUES = sizeof(PBRConstantBuffer) / 4;
 
 struct Light
 {
-    XMFLOAT3 LightPosition;
+    DirectX::XMFLOAT3 LightPosition;
     FLOAT Padding0;
-    XMFLOAT3 LightColor;
+    DirectX::XMFLOAT3 LightColor;
     FLOAT Padding1;
 };
 
@@ -56,27 +55,27 @@ struct SceneData
 {
     Light Lights[7];
 
-    XMFLOAT3 CameraPosition;
+    DirectX::XMFLOAT3 CameraPosition;
     FLOAT Padding0;
 };
 
 struct MVP
 {
-    XMMATRIX Model;
-    XMMATRIX View;
-    XMMATRIX Proj;
+    DirectX::XMMATRIX Model;
+    DirectX::XMMATRIX View;
+    DirectX::XMMATRIX Proj;
 };
 
 struct MeshConstants
 {
     MVP MVP;
-    XMMATRIX Normal;
+    DirectX::XMMATRIX Normal;
 };
 
 struct LightBillboardConstants
 {
     MVP MVP;
-    XMFLOAT3 Tint;
+    DirectX::XMFLOAT3 Tint;
 };
 
 struct Primitive
@@ -99,21 +98,21 @@ struct Node
     std::unique_ptr<Mesh> MeshData;
 
     // RH and Row-Major
-    XMFLOAT4X4 ModelMatrix;
+    DirectX::XMFLOAT4X4 ModelMatrix;
 };
 
 struct Model
 {
     std::wstring Name;
 
-    std::vector<Node> Nodes;
+    std::vector<Primitive> Primitives;
     std::vector<Texture> Images;
 
-    XMFLOAT3 Position{0.0f, 0.0f, 0.0f};
-    XMFLOAT3 Rotation{0.0f, 0.0f, 0.0f};
-    XMFLOAT3 Scale{1.0f, 1.0f, 1.0f};
+    DirectX::XMFLOAT3 Position{0.0f, 0.0f, 0.0f};
+    DirectX::XMFLOAT3 Rotation{0.0f, 0.0f, 0.0f};
+    DirectX::XMFLOAT3 Scale{1.0f, 1.0f, 1.0f};
 
-    BOOL Visible;
+    BOOL bVisible;
 };
 
 } // namespace Sendai

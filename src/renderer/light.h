@@ -1,4 +1,5 @@
 #pragma once
+
 #include "render_types.h"
 
 #define IS_LIGHT_ACTIVE(mask, i) (((mask) >> (i)) & 1)

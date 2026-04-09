@@ -1,7 +1,4 @@
 #include "../core/pch.h"
-#include <filesystem>
-#include <string>
-#include <windows.h>
 
 namespace fs = std::filesystem;
 

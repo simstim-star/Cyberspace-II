@@ -1,11 +1,11 @@
 #pragma once
 
-#include "DirectXMathC.h"
+#include "DirectXMath.h"
 
 typedef struct BillboardVertex
 {
-    XMFLOAT3 Position;
-    XMFLOAT2 UV;
+    DirectX::XMFLOAT3 Position;
+    DirectX::XMFLOAT2 UV;
 } BillboardVertex;
 
 extern BillboardVertex BillboardVertices[4];

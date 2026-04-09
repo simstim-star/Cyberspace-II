@@ -1,43 +1,44 @@
 #pragma once
 
-#include "DirectXMathC.h"
+#include "DirectXMath.h"
 
 namespace Sendai
 {
 class Camera
 {
   public:
-    Camera(XMFLOAT3 Position);
+    Camera(DirectX::XMFLOAT3 Position);
     VOID Update(FLOAT ElapsedSeconds);
     VOID OnKeyDown(WPARAM Key);
     VOID OnKeyUp(WPARAM Key);
     VOID Reset();
 
-    inline XMMATRIX ViewMatrix() const
+    inline DirectX::XMMATRIX GetViewMatrix() const
     {
-        XMVECTOR EyePosition = XMLoadFloat3(&_Position);
-        XMVECTOR EyeDirection = XMLoadFloat3(&_LookDirection);
-        XMVECTOR UpDirection = XMLoadFloat3(&_UpDirection);
-        return XM_MAT_LOOK_TO_LH(EyePosition, EyeDirection, UpDirection);
+        const DirectX::XMVECTOR EyePos = DirectX::XMLoadFloat3(&_Position);
+        const DirectX::XMVECTOR EyeDir = DirectX::XMLoadFloat3(&_LookDirection);
+        const DirectX::XMVECTOR UpDir = DirectX::XMLoadFloat3(&_UpDirection);
+
+        return DirectX::XMMatrixLookToLH(EyePos, EyeDir, UpDir);
     }
 
-    inline XMMATRIX ProjectionMatrix(FLOAT FOV, FLOAT AspectRatio, FLOAT NearPlane, FLOAT FarPlane) const
+    inline DirectX::XMMATRIX GetProjectionMatrix(float fovAngleY, float aspectRatio, float nearZ, float farZ) const
     {
-        return XMMatrixPerspectiveFovLH(FOV, AspectRatio, NearPlane, FarPlane);
+        return DirectX::XMMatrixPerspectiveFovLH(fovAngleY, aspectRatio, nearZ, farZ);
     }
 
-    inline XMFLOAT3 GetPosition() const
+    inline DirectX::XMFLOAT3 GetPosition() const
     {
         return _Position;
     }
 
   private:
-    XMFLOAT3 _InitialPosition;
-    XMFLOAT3 _Position;
+    DirectX::XMFLOAT3 _InitialPosition;
+    DirectX::XMFLOAT3 _Position;
     FLOAT _Yaw;
     FLOAT _Pitch;
-    XMFLOAT3 _LookDirection;
-    XMFLOAT3 _UpDirection;
+    DirectX::XMFLOAT3 _LookDirection;
+    DirectX::XMFLOAT3 _UpDirection;
     FLOAT _MoveSpeed; // units per second
     FLOAT _TurnSpeed; // radians per second
     FLOAT _SpeedEnhance;

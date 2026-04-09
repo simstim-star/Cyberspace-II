@@ -13,17 +13,4 @@
 
 struct ID3D12Resource;
 
-typedef struct M_Arena
-{
-    UINT8 *Base;
-    size_t SizeReserved;
-    size_t SizeCommitted;
-    size_t Offset;
-} M_Arena;
-
-M_Arena M_ArenaInit(size_t ReserveSize);
-VOID *M_ArenaAlloc(M_Arena *Arena, size_t Size);
-VOID M_ArenaReset(M_Arena *Arena);
-VOID M_ArenaRelease(M_Arena *Arena);
-
 D3D12_GPU_VIRTUAL_ADDRESS M_GpuAddress(ID3D12Resource *Resource, UINT64 Offset);

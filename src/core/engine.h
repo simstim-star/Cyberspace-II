@@ -1,14 +1,13 @@
 #pragma once
 
-#include "../renderer/renderer.h"
 #include "camera.h"
 #include "scene.h"
 #include "timer.h"
-#include <memory>
-#include <string>
 
 namespace Sendai
 {
+class UI;
+struct Renderer;
 
 struct AppWindow
 {
@@ -17,7 +16,6 @@ struct AppWindow
     }
 
     std::wstring Title;
-    std::wstring Window;
     HINSTANCE hInstance;
     HWND hWnd;
     UINT Width;
@@ -34,8 +32,8 @@ struct App
     BOOL bRunning;
 
     std::unique_ptr<Renderer> RendererCore;
+    std::unique_ptr<UI> UI;
 
-    // S_UI UI;
     Camera Camera;
     StepTimer Timer;
     Sendai::Scene Scene;

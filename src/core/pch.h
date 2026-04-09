@@ -30,6 +30,7 @@
 #define WIN32_LEAN_AND_MEAN
 
 #include <windows.h>
+#include <wrl/client.h>
 
 #include <d3d12.h>
 #include <dxgi1_6.h>
@@ -41,9 +42,10 @@
 #define D3D12_GPU_VIRTUAL_ADDRESS_NULL      ((D3D12_GPU_VIRTUAL_ADDRESS)0)
 #define D3D12_GPU_VIRTUAL_ADDRESS_UNKNOWN   ((D3D12_GPU_VIRTUAL_ADDRESS)-1)
 
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <math.h>
-#include <stdlib.h>
-#include <strsafe.h>
+#include <array>
+#include <filesystem>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+#include <memory>

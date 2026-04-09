@@ -2,14 +2,16 @@
 
 #include "../core/pch.h"
 
+
+#include "shader.h"
+#include "renderer.h"
+#include "render_types.h"
 #include "../core/log.h"
 #include "../error/error.h"
-#include "../shaders/sendai/shader_defs.h"
 #include "../win32/win_path.h"
-#include "render_types.h"
-#include "renderer.h"
-#include "shader.h"
-#include <d3dx12.h>
+#include "../shaders/sendai/shader_defs.h"
+
+using namespace DirectX;
 
 HRESULT
 Sendai::CompileShader(std::wstring &FilePath, ID3DBlob **Blob, EShaderType ShaderType)
@@ -364,6 +366,6 @@ XMMATRIX
 Sendai::NormalMatrix(XMFLOAT4X4 *Model)
 {
     XMMATRIX ModelMatrix = XMLoadFloat4x4(Model);
-    XMMATRIX ModelInv = XM_MAT_INV(NULL, ModelMatrix);
-    return XM_MAT_TRANSP(ModelInv);
+    XMMATRIX ModelInv = XMMatrixInverse(NULL, ModelMatrix);
+    return XMMatrixTranspose(ModelInv);
 }
