@@ -1,8 +1,6 @@
 #pragma once
 #include "../core/scene.h"
 
-#include <wrl/client.h>
-
 namespace Sendai
 {
 class UI

@@ -12,6 +12,8 @@
 
 #include <imgui_impl_win32.h>
 
+using namespace Microsoft::WRL;
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 LRESULT CALLBACK _WindowProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam);
@@ -25,16 +27,16 @@ Sendai::App::App(std::wstring Title)
     wc.style = CS_CLASSDC | CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = _WindowProc;
     wc.hInstance = Window.hInstance;
-    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hIconSm = LoadIcon(NULL, IDI_WINLOGO);
+    wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hIconSm = LoadIcon(nullptr, IDI_WINLOGO);
     wc.lpszClassName = L"SendaiClass";
     RegisterClassEx(&wc);
     RECT rect = {0, 0, static_cast<LONG>(Window.Width), static_cast<LONG>(Window.Height)};
     AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_APPWINDOW | WS_EX_WINDOWEDGE);
     Window.hWnd =
         CreateWindow(wc.lpszClassName, Title.c_str(), WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
-                     rect.right - rect.left, rect.bottom - rect.top, NULL, NULL, Window.hInstance, this);
+                     rect.right - rect.left, rect.bottom - rect.top, nullptr, nullptr, Window.hInstance, this);
 
     Scene.Models.reserve(10000);
     RendererCore = std::make_unique<Renderer>(Window.hWnd, Window.Width, Window.Height);
@@ -66,7 +68,7 @@ INT Sendai::Run()
     MSG Message = {0};
     while (App.bRunning)
     {
-        while (PeekMessage(&Message, NULL, 0, 0, PM_REMOVE))
+        while (PeekMessage(&Message, nullptr, 0, 0, PM_REMOVE))
         {
             if (Message.message == WM_QUIT)
             {

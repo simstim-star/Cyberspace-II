@@ -11,45 +11,45 @@ constexpr COMDLG_FILTERSPEC ModelsFilter[] = {
 PWSTR
 Win32SelectGLTFPath(VOID)
 {
-    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(hr))
     {
-        return NULL;
+        return nullptr;
     }
 
-    ComPtr<IFileOpenDialog> FileOpenDialog = NULL;
-    hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_PPV_ARGS(FileOpenDialog.GetAddressOf()));
+    ComPtr<IFileOpenDialog> FileOpenDialog = nullptr;
+    hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(FileOpenDialog.GetAddressOf()));
     if (FAILED(hr))
     {
         CoUninitialize();
-        return NULL;
+        return nullptr;
     }
 
     FileOpenDialog->SetFileTypes(ARRAYSIZE(ModelsFilter), ModelsFilter);
 
-    hr = FileOpenDialog->Show(NULL);
+    hr = FileOpenDialog->Show(nullptr);
     if (FAILED(hr))
     {
         CoUninitialize();
-        return NULL;
+        return nullptr;
     }
 
-    ComPtr<IShellItem> ChosenFile = NULL;
+    ComPtr<IShellItem> ChosenFile = nullptr;
     hr = FileOpenDialog->GetResult(&ChosenFile);
     if (FAILED(hr))
     {
         CoUninitialize();
-        return NULL;
+        return nullptr;
     }
 
-    PWSTR FilePath = NULL;
+    PWSTR FilePath = nullptr;
     hr = ChosenFile->GetDisplayName(SIGDN_FILESYSPATH, &FilePath);
 
     CoUninitialize();
 
     if (FAILED(hr))
     {
-        return NULL;
+        return nullptr;
     }
 
     return FilePath;

@@ -1,8 +1,6 @@
 #pragma once
 
 #include "../renderer/render_types.h"
-#include "memory.h"
-#include <vector>
 
 namespace Sendai
 {

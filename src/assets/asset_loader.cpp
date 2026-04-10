@@ -8,6 +8,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#include <d3dx12_barriers.h>
 
 using namespace Sendai;
 namespace fs = std::filesystem;
@@ -29,8 +30,8 @@ BOOL Sendai::LoadModel(Renderer *Renderer, const wstring &PathW, Scene &Scene)
     Assimp::Importer Importer;
     string Path(PathW.begin(), PathW.end());
     UINT Flags = aiProcess_Triangulate | aiProcess_ConvertToLeftHanded | aiProcess_CalcTangentSpace |
-                 aiProcess_LimitBoneWeights | aiProcess_JoinIdenticalVertices | aiProcess_PreTransformVertices |
-                 aiProcess_FlipUVs;
+                 aiProcess_LimitBoneWeights | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals |
+                 aiProcess_PreTransformVertices;
 
     const aiScene *pScene = Importer.ReadFile(Path, Flags);
 
@@ -86,12 +87,12 @@ UINT _ResolveAndLoadTexture(const wstring &ModelFolder, aiMaterial *Material, ai
         return 0;
     }
 
-    const char *RawTexturePath = TexturePath.C_Str();
+    const CHAR *RawTexturePath = TexturePath.C_Str();
 
     if (RawTexturePath[0] == EMBEDDED_TEXTURE_SYMBOL)
     {
-        int Index = std::atoi(&RawTexturePath[1]);
-        if (Index < (int)Scene->mNumTextures)
+        INT Index = std::atoi(&RawTexturePath[1]);
+        if (Index < (INT)Scene->mNumTextures)
         {
             aiTexture *pEmbedded = Scene->mTextures[Index];
             return Renderer->Textures->LoadEmbedded(pEmbedded);
@@ -109,10 +110,11 @@ VOID _ProcessMesh(aiMesh *Mesh, const aiScene *Scene, Model &Model, Renderer *Re
 {
     /* Vertices */
     vector<Sendai::Vertex> Vertices;
-    for (unsigned int i = 0; i < Mesh->mNumVertices; i++)
+    for (UINT i = 0; i < Mesh->mNumVertices; i++)
     {
         Sendai::Vertex Vertex{};
         Vertex.Position = {Mesh->mVertices[i].x, Mesh->mVertices[i].y, Mesh->mVertices[i].z};
+        UINT uvComponents = Mesh->mNumUVComponents[0];
 
         if (Mesh->HasNormals())
         {
@@ -138,10 +140,10 @@ VOID _ProcessMesh(aiMesh *Mesh, const aiScene *Scene, Model &Model, Renderer *Re
 
     /* Indices */
     std::vector<uint32_t> Indices;
-    for (unsigned int i = 0; i < Mesh->mNumFaces; i++)
+    for (UINT i = 0; i < Mesh->mNumFaces; i++)
     {
         aiFace Face = Mesh->mFaces[i];
-        for (unsigned int j = 0; j < Face.mNumIndices; j++)
+        for (UINT j = 0; j < Face.mNumIndices; j++)
         {
             Indices.push_back(Face.mIndices[j]);
         }
@@ -158,8 +160,9 @@ VOID _ProcessMesh(aiMesh *Mesh, const aiScene *Scene, Model &Model, Renderer *Re
         Primitive.ConstantBuffer.UVOffset = {0.0f, 0.0f};
         Primitive.ConstantBuffer.UVScale = {1.0f, 1.0f};
         Primitive.ConstantBuffer.UVRotation = 0.0f;
+
         aiUVTransform Transform;
-        if (Material->Get(AI_MATKEY_UVTRANSFORM(aiTextureType_DIFFUSE, 0), Transform) == AI_SUCCESS)
+        if (Material->Get(AI_MATKEY_UVTRANSFORM(aiTextureType_BASE_COLOR, 1), Transform) == AI_SUCCESS)
         {
             Primitive.ConstantBuffer.UVOffset = {Transform.mTranslation.x, Transform.mTranslation.y};
             Primitive.ConstantBuffer.UVScale = {Transform.mScaling.x, Transform.mScaling.y};
@@ -170,9 +173,9 @@ VOID _ProcessMesh(aiMesh *Mesh, const aiScene *Scene, Model &Model, Renderer *Re
         aiGetMaterialColor(Material, AI_MATKEY_BASE_COLOR, &BaseColor);
         Primitive.ConstantBuffer.BaseColorFactor = {BaseColor.r, BaseColor.g, BaseColor.b, BaseColor.a};
 
-        FLOAT RoughnessFactor = 0.0f;
+        FLOAT RoughnessFactor = 1.0f;
         aiGetMaterialFloat(Material, AI_MATKEY_ROUGHNESS_FACTOR, &RoughnessFactor);
-        FLOAT MetallicFactor = 0.0f;
+        FLOAT MetallicFactor = 1.0f;
         aiGetMaterialFloat(Material, AI_MATKEY_METALLIC_FACTOR, &MetallicFactor);
 
         Primitive.ConstantBuffer.RoughnessFactor = RoughnessFactor;
@@ -188,6 +191,11 @@ VOID _ProcessMesh(aiMesh *Mesh, const aiScene *Scene, Model &Model, Renderer *Re
 
         Primitive.ConstantBuffer.NormalTextureIndex =
             _ResolveAndLoadTexture(ModelFolder, Material, aiTextureType_NORMALS, Scene, Renderer);
+        if (Primitive.ConstantBuffer.NormalTextureIndex == 0)
+        {
+            Primitive.ConstantBuffer.NormalTextureIndex =
+                _ResolveAndLoadTexture(ModelFolder, Material, aiTextureType_HEIGHT, Scene, Renderer);
+        }
 
         Primitive.ConstantBuffer.MetallicTextureIndex =
             _ResolveAndLoadTexture(ModelFolder, Material, aiTextureType_METALNESS, Scene, Renderer);
@@ -196,7 +204,7 @@ VOID _ProcessMesh(aiMesh *Mesh, const aiScene *Scene, Model &Model, Renderer *Re
             _ResolveAndLoadTexture(ModelFolder, Material, aiTextureType_EMISSIVE, Scene, Renderer);
 
         Primitive.ConstantBuffer.OcclusionTextureIndex =
-            _ResolveAndLoadTexture(ModelFolder, Material, aiTextureType_AMBIENT, Scene, Renderer);
+            _ResolveAndLoadTexture(ModelFolder, Material, aiTextureType_AMBIENT_OCCLUSION, Scene, Renderer);
     }
 
     _UploadToGpu(Renderer, Primitive, Vertices, Indices);
@@ -207,37 +215,29 @@ VOID _ProcessMesh(aiMesh *Mesh, const aiScene *Scene, Model &Model, Renderer *Re
 VOID _UploadToGpu(Renderer *Renderer, Primitive &Primitive, const vector<Vertex> &Vertices,
                   const vector<uint32_t> &Indices)
 {
-    UINT VertexBufferSize = (UINT)(Vertices.size() * sizeof(Sendai::Vertex));
-    UINT IndexBufferSize = (UINT)(Indices.size() * sizeof(uint32_t));
-    memcpy(Renderer->UploadBufferCpuAddress + Renderer->CurrentUploadBufferOffset, Vertices.data(), VertexBufferSize);
 
     /* Vertex */
 
-    Primitive.VertexBufferView.BufferLocation =
-        Renderer->VertexBufferDefault->GetGPUVirtualAddress() + Renderer->CurrentVertexBufferOffset;
+    const auto VertexBufferSize = Vertices.size() * sizeof(Sendai::Vertex);
+    const auto VertexOffset = Renderer->GeometryUploadBuffer.CurrentOffset();
+    Primitive.VertexBufferView.BufferLocation = Renderer->GeometryUploadBuffer.PushBack(Vertices);
     Primitive.VertexBufferView.StrideInBytes = sizeof(Sendai::Vertex);
     Primitive.VertexBufferView.SizeInBytes = VertexBufferSize;
     Renderer->CommandList->CopyBufferRegion(Renderer->VertexBufferDefault.Get(), Renderer->CurrentVertexBufferOffset,
-                                            Renderer->UploadBuffer.Get(), Renderer->CurrentUploadBufferOffset,
-                                            VertexBufferSize);
+                                            Renderer->GeometryUploadBuffer.Get(), VertexOffset, VertexBufferSize);
     Renderer->CurrentVertexBufferOffset += VertexBufferSize;
-    Renderer->CurrentUploadBufferOffset += VertexBufferSize;
-    Renderer->CurrentUploadBufferOffset = (Renderer->CurrentUploadBufferOffset + 15) & ~15;
 
     /* Index */
 
-    memcpy(Renderer->UploadBufferCpuAddress + Renderer->CurrentUploadBufferOffset, Indices.data(), IndexBufferSize);
-    Primitive.IndexBufferView.BufferLocation =
-        Renderer->IndexBufferDefault->GetGPUVirtualAddress() + Renderer->CurrentIndexBufferOffset;
+    const auto IndexBufferSize = Indices.size() * sizeof(uint32_t);
+    const auto IndexOffset = Renderer->GeometryUploadBuffer.CurrentOffset();
+    Primitive.IndexBufferView.BufferLocation = Renderer->GeometryUploadBuffer.PushBack(Indices);
     Primitive.IndexBufferView.Format = DXGI_FORMAT_R32_UINT;
     Primitive.IndexBufferView.SizeInBytes = IndexBufferSize;
 
     /* Record copy Upload->Default */
     Renderer->CommandList->CopyBufferRegion(Renderer->IndexBufferDefault.Get(), Renderer->CurrentIndexBufferOffset,
-                                            Renderer->UploadBuffer.Get(), Renderer->CurrentUploadBufferOffset,
-                                            IndexBufferSize);
+                                            Renderer->GeometryUploadBuffer.Get(), IndexOffset, IndexBufferSize);
 
     Renderer->CurrentIndexBufferOffset += IndexBufferSize;
-    Renderer->CurrentUploadBufferOffset += IndexBufferSize;
-    Renderer->CurrentUploadBufferOffset = (Renderer->CurrentUploadBufferOffset + 15) & ~15;
 }

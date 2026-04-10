@@ -26,34 +26,34 @@ enum ERenderState
 struct Renderer
 {
     FLOAT AspectRatio;
-    ComPtr<IDXGIAdapter3> Adapter;
+    Microsoft::WRL::ComPtr<IDXGIAdapter3> Adapter;
 
     D3D12_VIEWPORT Viewport;
     D3D12_RECT ScissorRect;
 
-    ComPtr<ID3D12Device> Device;
-    ComPtr<IDXGISwapChain1> SwapChain;
-    ComPtr<ID3D12CommandQueue> CommandQueue;
-    ComPtr<ID3D12CommandAllocator> CommandAllocator;
-    ComPtr<ID3D12GraphicsCommandList> CommandList;
+    Microsoft::WRL::ComPtr<ID3D12Device> Device;
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> SwapChain;
+    Microsoft::WRL::ComPtr<ID3D12CommandQueue> CommandQueue;
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> CommandAllocator;
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> CommandList;
 
-    ComPtr<ID3D12DescriptorHeap> RtvDescriptorHeap;
-    ComPtr<ID3D12Resource> RtvBuffers[FRAME_COUNT];
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> RtvDescriptorHeap;
+    Microsoft::WRL::ComPtr<ID3D12Resource> RtvBuffers[FRAME_COUNT];
     D3D12_CPU_DESCRIPTOR_HANDLE RtvHandles[FRAME_COUNT];
     UINT RtvIndex;
 
     std::unique_ptr<Textures> Textures;
 
-    ComPtr<ID3D12RootSignature> RootSignPBR;
-    ComPtr<ID3D12RootSignature> RootSignBillboard;
-    ComPtr<ID3D12RootSignature> RootSignGrid;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> RootSignPBR;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> RootSignBillboard;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> RootSignGrid;
 
-    ComPtr<ID3D12Resource> DepthStencil;
-    ComPtr<ID3D12DescriptorHeap> DepthStencilHeap;
+    Microsoft::WRL::ComPtr<ID3D12Resource> DepthStencil;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> DepthStencilHeap;
 
     ERenderState State;
     BOOL bDrawGrid;
-    ComPtr<ID3D12PipelineState> PipelineState[ERS_N_RENDER_STATES];
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> PipelineState[ERS_N_RENDER_STATES];
 
     UINT DescriptorHandleIncrementSize[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES];
 
@@ -64,27 +64,22 @@ struct Renderer
     UINT FrameIndex;
     UINT64 FenceValue;
     HANDLE FenceEvent;
-    ComPtr<ID3D12Fence> Fence;
+    Microsoft::WRL::ComPtr<ID3D12Fence> Fence;
 
     /*****************************
         Resources
     *****************************/
 
-    ComPtr<ID3D12Resource> VertexBufferDefault;
-    ComPtr<ID3D12Resource> IndexBufferDefault;
-    ComPtr<ID3D12Resource> UploadBuffer;
-    UINT8 *UploadBufferCpuAddress;
+    Microsoft::WRL::ComPtr<ID3D12Resource> VertexBufferDefault;
+    Microsoft::WRL::ComPtr<ID3D12Resource> IndexBufferDefault;
 
-    UINT8 *MeshDataUploadBufferCpuAddress;
-    ComPtr<ID3D12Resource> MeshDataUploadBuffer;
-    UINT64 MeshDataOffset;
-
+    Sendai::UploadBuffer GeometryUploadBuffer;
+    Sendai::UploadBuffer MeshDataUploadBuffer;
     Sendai::UploadBuffer SceneDataUploadBuffer;
 
     D3D12_GPU_VIRTUAL_ADDRESS BillboardBufferLocation;
     D3D12_GPU_VIRTUAL_ADDRESS GridBufferLocation;
 
-    UINT64 CurrentUploadBufferOffset;
     UINT64 CurrentVertexBufferOffset;
     UINT64 CurrentIndexBufferOffset;
 

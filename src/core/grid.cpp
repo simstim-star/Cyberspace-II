@@ -9,7 +9,7 @@
 
 using namespace DirectX;
 
-#define GRID_VERTICES_COUNT 300
+constexpr UINT GRID_VERTICES_COUNT = 300;
 static XMFLOAT3 GRID_VERTICES[GRID_VERTICES_COUNT] = {};
 
 VOID Sendai::CreateGrid(Sendai::Renderer &Renderer, const FLOAT HalfSide)
@@ -27,7 +27,7 @@ VOID Sendai::CreateGrid(Sendai::Renderer &Renderer, const FLOAT HalfSide)
         GRID_VERTICES[i + 3] = {HalfSide, 0.0f, Position};
     }
 
-    Renderer.GridBufferLocation = Renderer.SceneDataUploadBuffer.Insert(GRID_VERTICES);
+    Renderer.GridBufferLocation = Renderer.SceneDataUploadBuffer.PushBack(GRID_VERTICES);
 }
 
 VOID Sendai::RenderGrid(Sendai::Renderer &Renderer, Sendai::MeshConstants &MeshConstants)
@@ -37,11 +37,8 @@ VOID Sendai::RenderGrid(Sendai::Renderer &Renderer, Sendai::MeshConstants &MeshC
     Renderer.CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
 
     MeshConstants.MVP.Model = XMMatrixIdentity();
-    std::memcpy(Renderer.MeshDataUploadBufferCpuAddress + Renderer.MeshDataOffset, &MeshConstants,
-                sizeof(Sendai::MeshConstants));
-
-    Renderer.CommandList->SetGraphicsRootConstantBufferView(
-        0, M_GpuAddress(Renderer.MeshDataUploadBuffer.Get(), Renderer.MeshDataOffset));
+    const auto Address = Renderer.MeshDataUploadBuffer.PushBack(MeshConstants);
+    Renderer.CommandList->SetGraphicsRootConstantBufferView(0, Address);
 
     D3D12_VERTEX_BUFFER_VIEW VBV = {
         .BufferLocation = Renderer.GridBufferLocation,
@@ -51,6 +48,4 @@ VOID Sendai::RenderGrid(Sendai::Renderer &Renderer, Sendai::MeshConstants &MeshC
 
     Renderer.CommandList->IASetVertexBuffers(0, 1, &VBV);
     Renderer.CommandList->DrawInstanced(GRID_VERTICES_COUNT, 1, 0, 0);
-
-    Renderer.MeshDataOffset += CB_ALIGN(MeshConstants);
 }

@@ -5,7 +5,7 @@ namespace fs = std::filesystem;
 fs::path Win32GetModuleDir()
 {
     wchar_t buffer[MAX_PATH];
-    DWORD size = GetModuleFileNameW(NULL, buffer, MAX_PATH);
+    DWORD size = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
     if (size == 0 || size == MAX_PATH)
     {
         std::exit(EXIT_FAILURE);

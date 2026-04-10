@@ -10,11 +10,15 @@
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#include <d3dx12_core.h>
+#include <d3dx12_barriers.h>
 
 namespace fs = std::filesystem;
+using namespace Microsoft::WRL;
 using Sendai::Textures;
 
-Textures::Textures(ID3D12Device *Device, ID3D12GraphicsCommandList *CommandList) : _UploadBuffer{D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT}
+Textures::Textures(ID3D12Device *Device, ID3D12GraphicsCommandList *CommandList)
+    : _UploadBuffer{MEGABYTES(512), D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT}
 {
     _TexturesCount = 0;
     _Device = Device;
@@ -32,17 +36,12 @@ Textures::Textures(ID3D12Device *Device, ID3D12GraphicsCommandList *CommandList)
     _DescriptorHeap->SetName(L"TexturesDescHeap");
 
     D3D12_HEAP_PROPERTIES HeapProps = {.Type = D3D12_HEAP_TYPE_UPLOAD};
-    _UploadBuffer.Size = MEGABYTES(128);
-    _UploadBuffer.CurrentOffset = 0;
-    auto TextureBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(_UploadBuffer.Size);
+    auto TextureBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(_UploadBuffer.Size());
     hr = Device->CreateCommittedResource(&HeapProps, D3D12_HEAP_FLAG_NONE, &TextureBufferDesc,
                                          D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-                                         IID_PPV_ARGS(_UploadBuffer.Buffer.GetAddressOf()));
+                                         IID_PPV_ARGS(_UploadBuffer.GetAddressOf()));
     ExitIfFailed(hr);
-    _UploadBuffer.Buffer->SetName(L"TextureUploadBuffer");
-
-    D3D12_RANGE Range = {0, 0};
-    _UploadBuffer.Buffer->Map(0, &Range, (VOID **)&_UploadBuffer.BaseMappedPtr);
+    _UploadBuffer.Map();
 }
 
 UINT Textures::Load(ID3D12Device *Device, const std::wstring &Path)
@@ -116,24 +115,34 @@ UINT Textures::LoadEmbedded(aiTexture *pEmbeddedTexture)
     }
 
     DirectX::TexMetadata Metadata;
-    DirectX::ScratchImage Image;
+    DirectX::ScratchImage ScratchImage;
 
-    HRESULT hr = DirectX::LoadFromWICMemory(reinterpret_cast<uint8_t *>(pEmbeddedTexture->pcData), pEmbeddedTexture->mWidth,
-                                            DirectX::WIC_FLAGS_NONE, &Metadata, Image);
+    HRESULT hr = DirectX::LoadFromWICMemory(reinterpret_cast<uint8_t *>(pEmbeddedTexture->pcData),
+                                            pEmbeddedTexture->mWidth, DirectX::WIC_FLAGS_NONE, &Metadata, ScratchImage);
 
     if (FAILED(hr))
     {
         return 0;
     }
 
-    Sendai::Texture Source = { 
+    D3D12_RESOURCE_DESC TextureDesc =
+        CD3DX12_RESOURCE_DESC::Tex2D(Metadata.format, static_cast<UINT64>(Metadata.width),
+                                     static_cast<UINT64>(Metadata.height), 1, static_cast<UINT16>(Metadata.mipLevels));
+
+    UINT64 TotalSize = 0;
+    _Device->GetCopyableFootprints(&TextureDesc, 0, (UINT)Metadata.mipLevels, 0, nullptr, nullptr, nullptr, &TotalSize);
+
+    Sendai::Texture Source = {
         .Name = Key.c_str(),
         .Width = static_cast<INT>(Metadata.width),
         .Height = static_cast<INT>(Metadata.height),
+        .Size = static_cast<size_t>(TotalSize),
         .MipLevels = 1,
         .Format = Metadata.format,
     };
-    Source.MipPixels[0] = Image.GetImage(0, 0, 0)->pixels;
+    const DirectX::Image *pImage = ScratchImage.GetImage(0, 0, 0);
+    Source.MipPixels[0] = pImage->pixels;
+    Source.MipRowPitches[0] = pImage->rowPitch;
     return _UploadToGPU(Source).HeapIndex;
 }
 
@@ -167,13 +176,13 @@ Sendai::GPUTexture Textures::_UploadToGPU(const Sendai::Texture &TextureToUpload
 
 ComPtr<ID3D12Resource> Textures::_CommandCreateTextureGPU(const Sendai::Texture &SourceTexture)
 {
+    ComPtr<ID3D12Resource> Texture;
+    auto HeapDefault = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
     auto TexDesc = CD3DX12_RESOURCE_DESC::Tex2D(SourceTexture.Format, (UINT64)SourceTexture.Width,
                                                 (UINT64)SourceTexture.Height, 1, (UINT16)SourceTexture.MipLevels);
-    auto HeapDefault = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-    ComPtr<ID3D12Resource> Texture;
     HRESULT hr =
         _Device->CreateCommittedResource(&HeapDefault, D3D12_HEAP_FLAG_NONE, &TexDesc, D3D12_RESOURCE_STATE_COPY_DEST,
-                                         NULL, IID_PPV_ARGS(Texture.GetAddressOf()));
+                                         nullptr, IID_PPV_ARGS(Texture.GetAddressOf()));
     ExitIfFailed(hr);
 
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT Layouts[D3D12_REQ_MIP_LEVELS];
@@ -184,12 +193,10 @@ ComPtr<ID3D12Resource> Textures::_CommandCreateTextureGPU(const Sendai::Texture 
     _Device->GetCopyableFootprints(&TexDesc, 0, SourceTexture.MipLevels, 0, Layouts, NumRows, RowSizeInBytes,
                                    &TotalUploadSize);
 
-    UINT64 Offset = _IncrementBufferOffset(TotalUploadSize);
-    UINT8 *pUploadBufferBase = _UploadBuffer.BaseMappedPtr + Offset;
-
+    UINT64 CurrentBaseOffset = _UploadBuffer.CurrentOffset();
     for (uint32_t MipLevel = 0; MipLevel < SourceTexture.MipLevels; MipLevel++)
     {
-        UINT8 *pDestination = pUploadBufferBase + Layouts[MipLevel].Offset;
+        UINT8 *pDestination = _UploadBuffer.CurrentMappedPtr() + Layouts[MipLevel].Offset;
         UINT8 *pSource = (UINT8 *)SourceTexture.MipPixels[MipLevel];
         for (UINT y = 0; y < NumRows[MipLevel]; y++)
         {
@@ -201,34 +208,18 @@ ComPtr<ID3D12Resource> Textures::_CommandCreateTextureGPU(const Sendai::Texture 
         D3D12_TEXTURE_COPY_LOCATION DestinationLocation = {.pResource = Texture.Get(),
                                                            .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
                                                            .SubresourceIndex = MipLevel};
-        D3D12_TEXTURE_COPY_LOCATION SourceLocation = {.pResource = _UploadBuffer.Buffer.Get(),
+        D3D12_TEXTURE_COPY_LOCATION SourceLocation = {.pResource = _UploadBuffer.Get(),
                                                       .Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
                                                       .PlacedFootprint = Layouts[MipLevel]};
-        SourceLocation.PlacedFootprint.Offset += Offset;
+        SourceLocation.PlacedFootprint.Offset += CurrentBaseOffset;
         _CommandList->CopyTextureRegion(&DestinationLocation, 0, 0, 0, &SourceLocation, nullptr);
     }
+    _UploadBuffer.AddOffset(TotalUploadSize);
 
     auto Barrier = CD3DX12_RESOURCE_BARRIER::Transition(Texture.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                                                         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-
     _CommandList->ResourceBarrier(1, &Barrier);
 
     Texture->SetName(SourceTexture.Name);
     return Texture;
 }
-
-UINT64
-Textures::_IncrementBufferOffset(const UINT64 Size)
-{
-    UINT64 AlignedOffset = ROUND_UP_POWER_OF_2(_UploadBuffer.CurrentOffset, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
-
-    if (AlignedOffset + Size > _UploadBuffer.Size)
-    {
-        _UploadBuffer.CurrentOffset = Size;
-        return 0;
-    }
-
-    _UploadBuffer.CurrentOffset = AlignedOffset + Size;
-    return AlignedOffset;
-}
-

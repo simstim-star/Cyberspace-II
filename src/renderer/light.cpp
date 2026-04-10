@@ -72,11 +72,10 @@ VOID Sendai::RenderLightBillboards(Sendai::Renderer &Renderer, const Sendai::Lig
 VOID RenderLightBillboard(const Sendai::MeshConstants &MeshConstants, Sendai::Renderer &Renderer, XMFLOAT3 Tint)
 {
     Sendai::LightBillboardConstants CB = {.MVP = MeshConstants.MVP, .Tint = Tint};
-    std::memcpy(Renderer.MeshDataUploadBufferCpuAddress + Renderer.MeshDataOffset, &CB,
-                sizeof(Sendai::LightBillboardConstants));
 
-    Renderer.CommandList->SetGraphicsRootConstantBufferView(
-        0, M_GpuAddress(Renderer.MeshDataUploadBuffer.Get(), Renderer.MeshDataOffset));
+    const auto Address = Renderer.MeshDataUploadBuffer.PushBack(CB);
+
+    Renderer.CommandList->SetGraphicsRootConstantBufferView(0, Address);
 
     D3D12_VERTEX_BUFFER_VIEW VBV = {
         .BufferLocation = Renderer.BillboardBufferLocation,
@@ -85,6 +84,4 @@ VOID RenderLightBillboard(const Sendai::MeshConstants &MeshConstants, Sendai::Re
     };
     Renderer.CommandList->IASetVertexBuffers(0, 1, &VBV);
     Renderer.CommandList->DrawInstanced(4, 1, 0, 0);
-
-    Renderer.MeshDataOffset += CB_ALIGN(Sendai::LightBillboardConstants);
 }

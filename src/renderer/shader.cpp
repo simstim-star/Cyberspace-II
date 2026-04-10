@@ -10,6 +10,7 @@
 #include "../error/error.h"
 #include "../win32/win_path.h"
 #include "../shaders/sendai/shader_defs.h"
+#include <d3dx12_core.h>
 
 using namespace DirectX;
 
@@ -21,17 +22,17 @@ Sendai::CompileShader(std::wstring &FilePath, ID3DBlob **Blob, EShaderType Shade
 #else
     const UINT CompileFlags = 0;
 #endif
-    ID3DBlob *ErrorBlob = NULL;
+    ID3DBlob *ErrorBlob = nullptr;
     HRESULT hr = S_OK;
 
     switch (ShaderType)
     {
     case EST_VERTEX_SHADER:
-        hr = D3DCompileFromFile(FilePath.c_str(), NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "VSMain", "vs_5_1",
+        hr = D3DCompileFromFile(FilePath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "VSMain", "vs_5_1",
                                 CompileFlags, 0, Blob, &ErrorBlob);
         break;
     case EST_PIXEL_SHADER:
-        hr = D3DCompileFromFile(FilePath.c_str(), NULL, D3D_COMPILE_STANDARD_FILE_INCLUDE, "PSMain", "ps_5_1",
+        hr = D3DCompileFromFile(FilePath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "PSMain", "ps_5_1",
                                 CompileFlags, 0, Blob, &ErrorBlob);
         break;
     }
@@ -299,12 +300,12 @@ VOID Sendai::CreateGridPipelineState(Sendai::Renderer *Renderer)
         .NumParameters = _countof(RootParameters),
         .pParameters = RootParameters,
         .NumStaticSamplers = 0,
-        .pStaticSamplers = NULL,
+        .pStaticSamplers = nullptr,
         .Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
     };
 
-    ID3DBlob *Signature = NULL;
-    ID3DBlob *Error = NULL;
+    ID3DBlob *Signature = nullptr;
+    ID3DBlob *Error = nullptr;
     hr = D3D12SerializeRootSignature(&RootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &Signature, &Error);
 
     if (FAILED(hr))
@@ -366,6 +367,6 @@ XMMATRIX
 Sendai::NormalMatrix(XMFLOAT4X4 *Model)
 {
     XMMATRIX ModelMatrix = XMLoadFloat4x4(Model);
-    XMMATRIX ModelInv = XMMatrixInverse(NULL, ModelMatrix);
+    XMMATRIX ModelInv = XMMatrixInverse(nullptr, ModelMatrix);
     return XMMatrixTranspose(ModelInv);
 }
