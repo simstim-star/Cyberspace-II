@@ -106,7 +106,6 @@ struct Model
     std::wstring Name;
 
     std::vector<Primitive> Primitives;
-    std::vector<Texture> Images;
 
     DirectX::XMFLOAT3 Position{0.0f, 0.0f, 0.0f};
     DirectX::XMFLOAT3 Rotation{0.0f, 0.0f, 0.0f};

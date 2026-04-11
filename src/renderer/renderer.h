@@ -11,7 +11,8 @@ namespace Sendai
 {
 enum EReservedSrvIndex
 {
-    ERSI_BILLBOARD_LAMP = 0,
+    ERSI_WHITE_TEXTURE = 0,
+    ERSI_BILLBOARD_LAMP = 1,
 };
 
 enum ERenderState

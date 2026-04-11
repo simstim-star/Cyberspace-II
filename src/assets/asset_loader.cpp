@@ -110,6 +110,7 @@ VOID _ProcessMesh(aiMesh *Mesh, const aiScene *Scene, Model &Model, Renderer *Re
 {
     /* Vertices */
     vector<Sendai::Vertex> Vertices;
+    Vertices.reserve(Mesh->mNumVertices);
     for (UINT i = 0; i < Mesh->mNumVertices; i++)
     {
         Sendai::Vertex Vertex{};
@@ -140,6 +141,7 @@ VOID _ProcessMesh(aiMesh *Mesh, const aiScene *Scene, Model &Model, Renderer *Re
 
     /* Indices */
     std::vector<uint32_t> Indices;
+    Indices.reserve(Mesh->mNumFaces);
     for (UINT i = 0; i < Mesh->mNumFaces; i++)
     {
         aiFace Face = Mesh->mFaces[i];

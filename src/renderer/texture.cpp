@@ -17,6 +17,17 @@ namespace fs = std::filesystem;
 using namespace Microsoft::WRL;
 using Sendai::Textures;
 
+constexpr UINT8 WHITE_PIXEL_DATA[] = {255, 255, 255, 255};
+constexpr Sendai::Texture WHITE_TEXTURE = {.Name = L"WHITE_TEXTURE",
+                                           .Width = 1,
+                                           .Height = 1,
+                                           .Channels = 4,
+                                           .Size = 4,
+                                           .MipPixels = {WHITE_PIXEL_DATA, nullptr},
+                                           .MipRowPitches = {4 /* 1 pixel * 4 bytes */, 0},
+                                           .MipLevels = 1,
+                                           .Format = DXGI_FORMAT_R8G8B8A8_UNORM};
+
 Textures::Textures(ID3D12Device *Device, ID3D12GraphicsCommandList *CommandList)
     : _UploadBuffer{MEGABYTES(512), D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT}
 {
@@ -42,6 +53,8 @@ Textures::Textures(ID3D12Device *Device, ID3D12GraphicsCommandList *CommandList)
                                          IID_PPV_ARGS(_UploadBuffer.GetAddressOf()));
     ExitIfFailed(hr);
     _UploadBuffer.Map();
+
+    _UploadToGPU(WHITE_TEXTURE);
 }
 
 UINT Textures::Load(ID3D12Device *Device, const std::wstring &Path)
